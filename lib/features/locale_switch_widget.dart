@@ -1,45 +1,39 @@
 import 'package:animated_toggle_switch/animated_toggle_switch.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
 import 'package:locale_switcher/locale_switcher.dart';
+import 'package:my_helpers/features/init.dart';
 import 'package:my_helpers/features/locale.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-part 'locale_switch_widget.g.dart';
 
 /// {@category UI Root}
-final locator = GetIt.instance;
+// final locator = GetIt.instance;
 
-@riverpod
-class LangsForSwitcher extends _$LangsForSwitcher {
-  static String name = 'LangsForSwitcher_';
+class LangsForSwitcher extends StateNotifier<List<String>> {
+  static const name = 'LangsForSwitcher_';
 
-  @override
-  List<String> build() {
-    final langs = locator<SharedPreferences>().getStringList(name) ?? ['Русский', 'Tiếng Việt'];
-    return langs; // todo: read from config.json, and activeLang
-  }
+  LangsForSwitcher()
+      : super(locator<SharedPreferences>().getStringList(name) ?? ['Русский', 'Tiếng Việt']);
 
-  @override
-  set state(value) {
-    super.state = value;
-    locator<SharedPreferences>().setStringList(name, state);
-  }
-
-  add(String loc) {
+  void add(String loc) {
     if (!state.contains(loc)) {
       state = [...state, loc];
+      locator<SharedPreferences>().setStringList(name, state);
     }
   }
 
-  remove(String loc) {
+  void remove(String loc) {
     if (state.contains(loc)) {
-      state = [...state.where((e) => e != loc)];
+      state = state.where((e) => e != loc).toList();
+      locator<SharedPreferences>().setStringList(name, state);
     }
   }
 }
+
+final langsForSwitcherProvider =
+    StateNotifierProvider<LangsForSwitcher, List<String>>((ref) => LangsForSwitcher());
 
 class LocaleSwitchWidget extends ConsumerWidget {
   const LocaleSwitchWidget({super.key});
