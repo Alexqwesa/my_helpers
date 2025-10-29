@@ -7,7 +7,6 @@ import 'package:my_helpers/features/locale.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-
 /// {@category UI Root}
 // final locator = GetIt.instance;
 
@@ -15,7 +14,7 @@ class LangsForSwitcher extends StateNotifier<List<String>> {
   static const name = 'LangsForSwitcher_';
 
   LangsForSwitcher()
-      : super(locator<SharedPreferences>().getStringList(name) ?? ['Русский', 'Tiếng Việt']);
+    : super(locator<SharedPreferences>().getStringList(name) ?? ['Русский', 'Tiếng Việt']);
 
   void add(String loc) {
     if (!state.contains(loc)) {
@@ -32,8 +31,9 @@ class LangsForSwitcher extends StateNotifier<List<String>> {
   }
 }
 
-final langsForSwitcherProvider =
-    StateNotifierProvider<LangsForSwitcher, List<String>>((ref) => LangsForSwitcher());
+final langsForSwitcherProvider = StateNotifierProvider<LangsForSwitcher, List<String>>(
+  (ref) => LangsForSwitcher(),
+);
 
 class LocaleSwitchWidget extends ConsumerWidget {
   const LocaleSwitchWidget({super.key});
@@ -64,13 +64,22 @@ class LocaleSwitchWidget extends ConsumerWidget {
                 langCodes.addShowOtherLocales();
               }
 
+              // if (langCodes.contains(null)) {
+              //   debugPrint(langCodes.toString());
+              //   return CircularProgressIndicator();
+              // }
+              var current = LocaleSwitcher.current ?? LocaleSwitcher.supportedLocaleNames.first;
+              if (!langCodes.entries.contains(current)){
+                current = langCodes.entries.first;
+              }
+
               return AnimatedToggleSwitch<LocaleName>.rolling(
                 values: langCodes,
                 borderWidth: 0,
                 height: 48 * size,
                 indicatorSize: const Size(48 * size, 48 * size),
                 fittingMode: FittingMode.none,
-                current: LocaleSwitcher.current,
+                current: current,
                 onChanged: (langCode) {
                   if (langCode.name == showOtherLocales) {
                     showSelectLocaleDialog(context);

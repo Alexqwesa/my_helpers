@@ -7,3 +7,4 @@ export 'features/locale.dart';
 export 'features/locale_switch_widget.dart';
 export 'features/notification_service.dart';
 export 'features/riverpod_providers.dart';
+export 'features/iterable.dart';
