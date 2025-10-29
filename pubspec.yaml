@@ -45,6 +45,7 @@ dependencies:
   riverpod:
 
   url_strategy:
+  timezone: ^0.10.1
 
 dev_dependencies:
   flutter_test:

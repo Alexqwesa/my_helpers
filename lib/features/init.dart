@@ -3,11 +3,11 @@ import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest.dart';
 import 'package:url_strategy/url_strategy.dart';
 
 /// {@category UI Root}
 final locator = GetIt.instance;
-
 
 // Future<AppLocalizations> loadDefaultLocale() async {
 //   const delegate = AppLocalizations.delegate;
@@ -25,6 +25,7 @@ final locator = GetIt.instance;
 ///
 /// {@category UI Root}
 Future<void> init() async {
+  initializeTimeZones();
   setPathUrlStrategy();
   // GoRouter.optionURLReflectsImperativeAPIs = true;
   WidgetsFlutterBinding.ensureInitialized();
