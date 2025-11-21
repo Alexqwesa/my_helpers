@@ -25,3 +25,11 @@ String aloc(String input, {bool all = false}) {
   // todo support AppLocalizations here
   return defaultText;
 }
+extension StringX on String? {
+  /// Returns `null` if the string is `null`, empty, or contains only spaces.
+  String? get nullIfBlank {
+    final s = this?.trim();
+    return (s == null || s.isEmpty || s.toLowerCase() == 'null') ? null : s;
+  }
+}
+
