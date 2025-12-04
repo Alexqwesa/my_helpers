@@ -1,5 +1,20 @@
 import 'package:locale_switcher/locale_switcher.dart';
 
+import 'init.dart';
+
+/// Configuration for how `aloc(all: true)` should order / filter languages.
+class AlocLangOrder {
+  const AlocLangOrder(this.langs);
+
+  /// Language codes in preferred order, e.g. ['ru', 'vi'].
+  final List<String> langs;
+}
+
+List<String>? _preferredAlocLangs() {
+  if (!locator.isRegistered<AlocLangOrder>()) return null;
+  return locator<AlocLangOrder>().langs;
+}
+
 String aloc(String input, {bool all = false}) {
   // todo: maybe check arb first?
   if (all) {
@@ -15,6 +30,21 @@ String aloc(String input, {bool all = false}) {
   final viText = parts.length > 1 ? parts[1] : defaultText;
   final ruText = parts.length > 2 ? parts[2] : defaultText;
 
+  final pref = _preferredAlocLangs();
+  if (pref != null && pref.isNotEmpty) {
+    final map = <String, String>{'en': defaultText, 'vi': viText, 'ru': ruText};
+    final out = <String>[];
+    for (final code in pref) {
+      final text = map[code];
+      if (text != null && text.isNotEmpty) {
+        out.add(text);
+      }
+    }
+    if (out.isNotEmpty) {
+      return out.join(' / ');
+    }
+  }
+
   // if(!context.mounted) return defaultText;
   // final locale = Localizations.localeOf(context).languageCode.toLowerCase();
   final locale = LocaleSwitcher.localeBestMatch.languageCode;
@@ -25,6 +55,7 @@ String aloc(String input, {bool all = false}) {
   // todo support AppLocalizations here
   return defaultText;
 }
+
 extension StringX on String? {
   /// Returns `null` if the string is `null`, empty, or contains only spaces.
   String? get nullIfBlank {
@@ -32,4 +63,3 @@ extension StringX on String? {
     return (s == null || s.isEmpty || s.toLowerCase() == 'null') ? null : s;
   }
 }
-

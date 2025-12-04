@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart';
 import 'package:url_strategy/url_strategy.dart';
 
+import 'aloc.dart';
+
 /// {@category UI Root}
 final locator = GetIt.instance;
 
@@ -73,7 +75,8 @@ Future<void> init() async {
   try {
     locator
       // ..registerLazySingleton<AppLocalizations>(() => locale)
-      ..registerLazySingleton<SharedPreferences>(() => sharedPreferences);
+      ..registerLazySingleton<SharedPreferences>(() => sharedPreferences)
+      ..registerSingleton<AlocLangOrder>(const AlocLangOrder([]));
     // ignore: avoid_catches_without_on_clauses
     // if (sharedPreferences.getString("LocaleSwitcherCurrentLocaleName") == null) {
     //   await sharedPreferences.setString("LocaleSwitcherCurrentLocaleName", "ru");
