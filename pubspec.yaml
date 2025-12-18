@@ -46,6 +46,8 @@ dependencies:
 
   url_strategy:
   timezone: ^0.10.1
+  crypto: ^3.0.7
+  diacritic: ^0.1.6
 
 dev_dependencies:
   flutter_test:
