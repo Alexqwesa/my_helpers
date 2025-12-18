@@ -76,7 +76,7 @@ Future<void> init() async {
     locator
       // ..registerLazySingleton<AppLocalizations>(() => locale)
       ..registerLazySingleton<SharedPreferences>(() => sharedPreferences)
-      ..registerSingleton<AlocLangOrder>(const AlocLangOrder([]));
+      ..registerSingleton<AlocLangOrder>( AlocLangOrder([]));
     // ignore: avoid_catches_without_on_clauses
     // if (sharedPreferences.getString("LocaleSwitcherCurrentLocaleName") == null) {
     //   await sharedPreferences.setString("LocaleSwitcherCurrentLocaleName", "ru");

@@ -4,7 +4,7 @@ import 'init.dart';
 
 /// Configuration for how `aloc(all: true)` should order / filter languages.
 class AlocLangOrder {
-  const AlocLangOrder(this.langs);
+  AlocLangOrder(this.langs);
 
   /// Language codes in preferred order, e.g. ['ru', 'vi'].
   final List<String> langs;
