@@ -1,5 +1,5 @@
 import 'package:locale_switcher/locale_switcher.dart';
-
+import 'package:flutter/material.dart';
 import 'init.dart';
 
 /// Configuration for how `aloc(all: true)` should order / filter languages.
@@ -10,7 +10,7 @@ class AlocLangOrder {
   final List<String> langs;
 }
 
-List<String>? _preferredAlocLangs() {
+List<String>? preferredAlocLangs() {
   if (!locator.isRegistered<AlocLangOrder>()) return null;
   return locator<AlocLangOrder>().langs;
 }
@@ -30,7 +30,7 @@ String aloc(String input, {bool all = false}) {
   final viText = parts.length > 1 ? parts[1] : defaultText;
   final ruText = parts.length > 2 ? parts[2] : defaultText;
 
-  final pref = _preferredAlocLangs();
+  final pref = preferredAlocLangs();
   if (pref != null && pref.isNotEmpty) {
     final map = <String, String>{'en': defaultText, 'vi': viText, 'ru': ruText};
     final out = <String>[];
@@ -63,3 +63,37 @@ extension StringX on String? {
     return (s == null || s.isEmpty || s.toLowerCase() == 'null') ? null : s;
   }
 }
+
+
+TextSpan alocSpan({
+  required BuildContext context,
+  required List<InlineSpan> en,
+  required List<InlineSpan> vi,
+  required List<InlineSpan> ru,
+  TextStyle? style,
+}) {
+  final baseStyle = style ?? Theme
+      .of(context)
+      .textTheme
+      .bodyMedium;
+  final lc = LocaleSwitcher.localeBestMatch.languageCode;
+
+  List<InlineSpan> pick() {
+    switch (lc) {
+      case 'vi':
+        return vi;
+      case 'ru':
+        return ru;
+      default:
+        return en;
+    }
+  }
+
+  return TextSpan(style: baseStyle, children: pick());
+}
+
+/// Convenience builders
+TextSpan t(String s) => TextSpan(text: s);
+
+TextSpan b(String s) =>
+    TextSpan(text: s, style: const TextStyle(fontWeight: FontWeight.bold));
