@@ -10,4 +10,6 @@ export 'features/l10n/locale.dart';
 export 'features/l10n/locale_switch_widget.dart';
 export 'features/notification_service.dart';
 export 'features/riverpod_providers.dart';
+export 'features/route_chores.dart';
+export 'features/route_observer.dart';
 export 'features/string_extensions.dart';
