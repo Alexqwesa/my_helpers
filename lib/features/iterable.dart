@@ -1,14 +1,29 @@
-Iterable<(T, S?)> zipIterable<T, S>(List<T> keys, List<S> values) sync* {
-  assert(keys.length == values.length, 'Keys and values must have the same length');
-  final len = keys.length;
-  for (var i = 0; i < len; i++) {
-    yield (keys[i], values.length > i ? values[i] : null);
+Iterable<(T, S?)> zipIterable<T, S>(Iterable<T> keys, Iterable<S> values) sync* {
+  final valueIt = values.iterator;
+  for (final k in keys) {
+    S? v;
+    if (valueIt.moveNext()) {
+      v = valueIt.current;
+    }
+    yield (k, v); // can't get length from iterable(((
   }
 }
 
-Iterable<MapEntry<T, S>> zipKeyValue<T, S>(List<T> keys, List<S> values) sync* {
-  assert(keys.length == values.length, 'Keys and values must have the same length');
-  for (var i = 0; i < keys.length; i++) {
-    yield MapEntry(keys[i], values[i]);
+Iterable<MapEntry<T, S>> zipKeyValue<T, S>(Iterable<T> keys, Iterable<S> values) sync* {
+  final keyIt = keys.iterator;
+  final valIt = values.iterator;
+
+  while (true) {
+    final hasKey = keyIt.moveNext();
+    final hasVal = valIt.moveNext();
+
+    assert(hasKey == hasVal, 'Keys and values must have the same length');
+
+    if (!hasKey || !hasVal) break;
+    yield MapEntry(keyIt.current, valIt.current);
   }
+}
+
+extension IntNotZeroX on int? {
+  bool get hasValue => this != null && this != 0;
 }
