@@ -14,21 +14,20 @@ typedef RefReader = T Function<T>(ProviderListenable<T> provider);
 typedef RefRefreshFunction = T Function<T>(ProviderBase<T> provider);
 
 class RefStub {
-  final RefReader read;
-  final RefListener listen;
-  final void Function(ProviderBase provider) invalidate;
-  final RefRefreshFunction refresh;
-
-  const RefStub({
+  RefStub({
     required this.read,
     required this.listen,
     required this.invalidate,
     required this.refresh,
   });
 
-  /// A factory constructor to easily create a RefStub from a Ref.
+  RefReader read;
+  RefListener listen;
+  void Function(ProviderBase provider) invalidate;
+  RefRefreshFunction refresh;
+
   factory RefStub.fromRef(dynamic ref) {
-    if (!(ref is Ref || ref is WidgetRef)) {
+    if (ref is! Ref && ref is! WidgetRef) {
       throw ArgumentError('ref must be either a Ref or WidgetRef.');
     }
     return RefStub(
@@ -38,12 +37,22 @@ class RefStub {
       refresh: ref.refresh,
     );
   }
+
+  void bind(dynamic ref) {
+    if (ref is! Ref && ref is! WidgetRef) {
+      throw ArgumentError('ref must be either a Ref or WidgetRef.');
+    }
+    read = ref.read;
+    listen = ref.listen;
+    invalidate = ref.invalidate;
+    refresh = ref.refresh;
+  }
 }
 
 class BaseWidgetController {
-  late final RefStub ref;
+  BaseWidgetController(dynamic refOriginal) : ref = RefStub.fromRef(refOriginal);
 
-  BaseWidgetController(dynamic refOriginal) {
-    ref = RefStub.fromRef(refOriginal);
-  }
+  final RefStub ref;
+
+  void bindRef(dynamic refNew) => ref.bind(refNew);
 }
