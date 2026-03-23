@@ -15,7 +15,7 @@ List<String>? preferredAlocLangs() {
   return locator<AlocLangOrder>().langs;
 }
 
-String aloc(String input, {bool all = false}) {
+String aloc(String input, {bool all = false, String? langCode}) {
   // todo: maybe check arb first?
   if (all) {
     return input.replaceAll("|", " / ");
@@ -47,7 +47,8 @@ String aloc(String input, {bool all = false}) {
 
   // if(!context.mounted) return defaultText;
   // final locale = Localizations.localeOf(context).languageCode.toLowerCase();
-  final locale = LocaleSwitcher.localeBestMatch.languageCode;
+  final locale =
+      (langCode ?? LocaleSwitcher.localeBestMatch.languageCode).toLowerCase();
 
   if (locale == 'vi') return viText;
   if (locale == 'ru') return ruText;
@@ -64,7 +65,6 @@ extension StringX on String? {
   }
 }
 
-
 TextSpan alocSpan({
   required BuildContext context,
   required List<InlineSpan> en,
@@ -72,10 +72,7 @@ TextSpan alocSpan({
   required List<InlineSpan> ru,
   TextStyle? style,
 }) {
-  final baseStyle = style ?? Theme
-      .of(context)
-      .textTheme
-      .bodyMedium;
+  final baseStyle = style ?? Theme.of(context).textTheme.bodyMedium;
   final lc = LocaleSwitcher.localeBestMatch.languageCode;
 
   List<InlineSpan> pick() {
