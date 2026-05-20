@@ -78,11 +78,59 @@ class NotificationService {
 
   static final Queue<_QueuedNotification> _queue = Queue<_QueuedNotification>();
   static bool _isDraining = false;
+  static bool _suppressNotifications = false;
+  static final List<String> _pendingErrors = <String>[];
+  static final List<String> _pendingOks = <String>[];
+  static final List<String> _pendingWarnings = <String>[];
+
+  static void suppressSnackbars() {
+    _suppressNotifications = true;
+  }
+
+  static void flushPendingNotifications({bool showOks = false}) {
+    _suppressNotifications = false;
+    if (_pendingErrors.isNotEmpty) {
+      final msg = _pendingErrors.length == 1
+          ? _pendingErrors.first
+          : '${_pendingErrors.length} errors occurred|'
+              '${_pendingErrors.length} lỗi xảy ra|'
+              '${_pendingErrors.length} ошибок';
+      showError(msg);
+    } else if (showOks && _pendingOks.isNotEmpty) {
+      final msg = _pendingOks.length == 1
+          ? _pendingOks.first
+          : '${_pendingOks.length} operations completed|'
+              '${_pendingOks.length} thao tác hoàn tất|'
+              '${_pendingOks.length} операций завершено';
+      showOk(msg);
+    }
+    _pendingErrors.clear();
+    _pendingOks.clear();
+    _pendingWarnings.clear();
+  }
+
+  static void _enqueueWhileSuppressed(_NotificationKind kind, String message) {
+    switch (kind) {
+      case _NotificationKind.ok:
+      case _NotificationKind.short:
+        _pendingOks.add(message);
+      case _NotificationKind.warning:
+        _pendingWarnings.add(message);
+      case _NotificationKind.error:
+        _pendingErrors.add(message);
+      case _NotificationKind.dev:
+        break;
+    }
+  }
 
   static void _show(_NotificationKind kind,
       String message, {
         Duration? overrideDuration,
       }) {
+    if (_suppressNotifications) {
+      _enqueueWhileSuppressed(kind, message);
+      return;
+    }
     final existing = _queue.firstWhere(
           (q) => q.kind == kind && q.message == message,
       orElse: () => _QueuedNotification.none,
