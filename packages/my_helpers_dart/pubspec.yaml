@@ -1,0 +1,16 @@
+name: my_helpers_dart
+description: Pure Dart helpers shared by server and Flutter apps.
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+
+resolution: workspace
+
+dependencies:
+  crypto: ^3.0.7
+  diacritic: ^0.1.6
+  intl:
+
+dev_dependencies:
+  lints: '>=3.0.0 <7.0.0'
