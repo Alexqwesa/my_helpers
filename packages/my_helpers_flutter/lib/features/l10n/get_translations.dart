@@ -2,8 +2,6 @@
 import 'package:locale_switcher/locale_switcher.dart';
 import 'package:my_helpers_dart/my_helpers_dart.dart';
 
-import 'aloc.dart';
-
 /// Try to produce key candidates for a translations Map
 Iterable<dynamic> _langKeyCandidates(String code) sync* {
   // Map may be keyed by string codes:
