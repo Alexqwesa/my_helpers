@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 import 'dart:collection';
 import 'dart:developer' as dev;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -156,29 +157,34 @@ class NotificationService {
     }
   }
 
-  static void _drainQueue() async {
-    _isDraining = true;
 
-    while (_queue.isNotEmpty) {
-      final item = _queue.removeFirst();
+static Future<void> _drainQueue() async {
+  _isDraining = true;
 
-      final style = _styleForKind(item.kind);
-      var duration = item.overrideDuration ?? style.defaultDuration;
+  const maxRepeatedDuration = Duration(seconds: 4);
 
-      // Extend duration based on how many times this exact notification was requested
-      if (item.repeatCount > 1) {
-        // e.g. base * repeatCount, but clamp to max
-        final baseMillis = duration.inMilliseconds;
-        final computedMillis = baseMillis * item.repeatCount;
-        final clampedMillis = computedMillis.clamp(baseMillis, 4000); // max 4s
-        duration = Duration(milliseconds: clampedMillis);
-      }
+  while (_queue.isNotEmpty) {
+    final item = _queue.removeFirst();
 
-      await _showNow(item.message, style.bgColor, duration);
+    final style = _styleForKind(item.kind);
+    var duration = item.overrideDuration ?? style.defaultDuration;
+
+    // Extend duration based on how many times this exact notification was requested.
+    // If the base duration is already longer than the repeat max, keep the base duration.
+    if (item.repeatCount > 1 && duration < maxRepeatedDuration) {
+      final repeatedMillis = duration.inMilliseconds * item.repeatCount;
+      final maxMillis = maxRepeatedDuration.inMilliseconds;
+
+      duration = Duration(
+        milliseconds: math.min(repeatedMillis, maxMillis),
+      );
     }
 
-    _isDraining = false;
+    await _showNow(item.message, style.bgColor, duration);
   }
+
+  _isDraining = false;
+}
 
   // ───────── Actual display ─────────
 
