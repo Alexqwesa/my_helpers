@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:collection';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
@@ -13,9 +13,7 @@ String localizedMsg(String message) {
   // into real newlines.
   final normalized = message.replaceAll(r'\n', '\n');
 
-  final pipes = RegExp(r'\|')
-      .allMatches(normalized)
-      .length;
+  final pipes = RegExp(r'\|').allMatches(normalized).length;
 
   if (pipes == 2) {
     try {
@@ -46,14 +44,7 @@ String localizedMsg(String message) {
 ///      MaterialApp.router(
 ///        scaffoldMessengerKey: NotificationService.messengerKey,
 
-
-enum _NotificationKind {
-  ok,
-  error,
-  warning,
-  dev,
-  short,
-}
+enum _NotificationKind { ok, error, warning, dev, short }
 
 class NotificationService {
   static final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -75,6 +66,29 @@ class NotificationService {
     }
   }
 
+  static String _locFromContext(BuildContext context, String message) {
+    final normalized = message.replaceAll(r'\n', '\n');
+    final pipes = RegExp(r'\|').allMatches(normalized).length;
+
+    try {
+      if (pipes == 2) {
+        return context.aloc(normalized);
+      }
+
+      if (pipes == 4) {
+        final first = normalized.indexOf('|');
+        final last = normalized.lastIndexOf('|');
+        if (first != -1 && last != -1 && last > first) {
+          return context.aloc(normalized.substring(first + 1, last));
+        }
+      }
+    } catch (_) {
+      return _loc(message);
+    }
+
+    return normalized;
+  }
+
   // ───────── Queue + dedupe ─────────
 
   static final Queue<_QueuedNotification> _queue = Queue<_QueuedNotification>();
@@ -94,15 +108,15 @@ class NotificationService {
       final msg = _pendingErrors.length == 1
           ? _pendingErrors.first
           : '${_pendingErrors.length} errors occurred|'
-              '${_pendingErrors.length} lỗi xảy ra|'
-              '${_pendingErrors.length} ошибок';
+                '${_pendingErrors.length} lỗi xảy ra|'
+                '${_pendingErrors.length} ошибок';
       showError(msg);
     } else if (showOks && _pendingOks.isNotEmpty) {
       final msg = _pendingOks.length == 1
           ? _pendingOks.first
           : '${_pendingOks.length} operations completed|'
-              '${_pendingOks.length} thao tác hoàn tất|'
-              '${_pendingOks.length} операций завершено';
+                '${_pendingOks.length} thao tác hoàn tất|'
+                '${_pendingOks.length} операций завершено';
       showOk(msg);
     }
     _pendingErrors.clear();
@@ -124,16 +138,13 @@ class NotificationService {
     }
   }
 
-  static void _show(_NotificationKind kind,
-      String message, {
-        Duration? overrideDuration,
-      }) {
+  static void _show(_NotificationKind kind, String message, {Duration? overrideDuration}) {
     if (_suppressNotifications) {
       _enqueueWhileSuppressed(kind, message);
       return;
     }
     final existing = _queue.firstWhere(
-          (q) => q.kind == kind && q.message == message,
+      (q) => q.kind == kind && q.message == message,
       orElse: () => _QueuedNotification.none,
     );
 
@@ -157,40 +168,35 @@ class NotificationService {
     }
   }
 
+  static Future<void> _drainQueue() async {
+    _isDraining = true;
 
-static Future<void> _drainQueue() async {
-  _isDraining = true;
+    const maxRepeatedDuration = Duration(seconds: 4);
 
-  const maxRepeatedDuration = Duration(seconds: 4);
+    while (_queue.isNotEmpty) {
+      final item = _queue.removeFirst();
 
-  while (_queue.isNotEmpty) {
-    final item = _queue.removeFirst();
+      final style = _styleForKind(item.kind);
+      var duration = item.overrideDuration ?? style.defaultDuration;
 
-    final style = _styleForKind(item.kind);
-    var duration = item.overrideDuration ?? style.defaultDuration;
+      // Extend duration based on how many times this exact notification was requested.
+      // If the base duration is already longer than the repeat max, keep the base duration.
+      if (item.repeatCount > 1 && duration < maxRepeatedDuration) {
+        final repeatedMillis = duration.inMilliseconds * item.repeatCount;
+        final maxMillis = maxRepeatedDuration.inMilliseconds;
 
-    // Extend duration based on how many times this exact notification was requested.
-    // If the base duration is already longer than the repeat max, keep the base duration.
-    if (item.repeatCount > 1 && duration < maxRepeatedDuration) {
-      final repeatedMillis = duration.inMilliseconds * item.repeatCount;
-      final maxMillis = maxRepeatedDuration.inMilliseconds;
+        duration = Duration(milliseconds: math.min(repeatedMillis, maxMillis));
+      }
 
-      duration = Duration(
-        milliseconds: math.min(repeatedMillis, maxMillis),
-      );
+      await _showNow(item.message, style.bgColor, duration);
     }
 
-    await _showNow(item.message, style.bgColor, duration);
+    _isDraining = false;
   }
-
-  _isDraining = false;
-}
 
   // ───────── Actual display ─────────
 
-  static Future<void> _showNow(String message,
-      Color bg,
-      Duration duration,) async {
+  static Future<void> _showNow(String message, Color bg, Duration duration) async {
     await _waitForStableFrame();
 
     final m = messengerKey.currentState;
@@ -202,26 +208,28 @@ static Future<void> _drainQueue() async {
     final snackBar = SnackBar(
       duration: duration,
       backgroundColor: bg,
-      content: Row(
-        children: [
-          Expanded(child: Text(_loc(message))),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 20, color: Colors.white),
-            tooltip: aloc(
-              'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
+      content: Builder(
+        builder: (context) => Row(
+          children: [
+            Expanded(child: Text(_locFromContext(context, message))),
+            IconButton(
+              icon: const Icon(Icons.copy, size: 20, color: Colors.white),
+              tooltip: context.aloc(
+                'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
+              ),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: message));
+              },
             ),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: message));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20, color: Colors.white),
-            tooltip: aloc('Close|Đóng|Закрыть'),
-            onPressed: () {
-              m.clearSnackBars();
-            },
-          ),
-        ],
+            IconButton(
+              icon: const Icon(Icons.close, size: 20, color: Colors.white),
+              tooltip: context.aloc('Close|Đóng|Закрыть'),
+              onPressed: () {
+                m.clearSnackBars();
+              },
+            ),
+          ],
+        ),
       ),
     );
 
@@ -264,61 +272,27 @@ static Future<void> _drainQueue() async {
 
   // ───────── Public helpers (unchanged API) ─────────
 
+  static void showOk(String message, {Duration? duration}) =>
+      _show(_NotificationKind.ok, message, overrideDuration: duration);
 
-  static void showOk(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.ok,
-        message,
-        overrideDuration: duration,
-      );
+  static void showError(String message, {Duration? duration}) =>
+      _show(_NotificationKind.error, message, overrideDuration: duration);
 
-  static void showError(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.error,
-        message,
-        overrideDuration: duration,
-      );
+  static void showWarning(String message, {Duration? duration}) =>
+      _show(_NotificationKind.warning, message, overrideDuration: duration);
 
-  static void showWarning(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.warning,
-        message,
-        overrideDuration: duration,
-      );
+  static void showDev(String message, {Duration? duration}) =>
+      _show(_NotificationKind.dev, message, overrideDuration: duration);
 
-  static void showDev(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.dev,
-        message,
-        overrideDuration: duration,
-      );
-
-  static void showShort(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.short,
-        message,
-        overrideDuration: duration,
-      );
+  static void showShort(String message, {Duration? duration}) =>
+      _show(_NotificationKind.short, message, overrideDuration: duration);
 }
 
 class _NotificationStyle {
   final Color bgColor;
   final Duration defaultDuration;
 
-  const _NotificationStyle({
-    required this.bgColor,
-    required this.defaultDuration,
-  });
+  const _NotificationStyle({required this.bgColor, required this.defaultDuration});
 }
 
 class _QueuedNotification {
@@ -343,33 +317,22 @@ class _QueuedNotification {
 
 // Convenience functions (unchanged)
 
-
-void showErrorNotification(String message, {
-  Duration? duration,
-}) {
+void showErrorNotification(String message, {Duration? duration}) {
   NotificationService.showError(message, duration: duration);
 }
 
-void showDevNotification(String message, {
-  Duration? duration,
-}) {
+void showDevNotification(String message, {Duration? duration}) {
   NotificationService.showDev(message, duration: duration);
 }
 
-void showShortNotification(String message, {
-  Duration? duration,
-}) {
+void showShortNotification(String message, {Duration? duration}) {
   NotificationService.showShort(message, duration: duration);
 }
 
-void showOkNotification(String message, {
-  Duration? duration,
-}) {
+void showOkNotification(String message, {Duration? duration}) {
   NotificationService.showOk(message, duration: duration);
 }
 
-void showWarningNotification(String message, {
-  Duration? duration,
-}) {
+void showWarningNotification(String message, {Duration? duration}) {
   NotificationService.showWarning(message, duration: duration);
 }

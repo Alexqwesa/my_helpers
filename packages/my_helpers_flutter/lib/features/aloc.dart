@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:locale_switcher/locale_switcher.dart';
 import 'package:my_helpers_dart/my_helpers_dart.dart' as dart;
 
@@ -13,6 +13,13 @@ String aloc(String input, {bool all = false, String? langCode}) {
   );
 }
 
+extension AlocBuildContext on BuildContext {
+  String aloc(String input, {bool all = false}) {
+    final langCode = Localizations.localeOf(this).languageCode;
+    return dart.aloc(input, all: all, langCode: langCode);
+  }
+}
+
 TextSpan alocSpan({
   required BuildContext context,
   required List<InlineSpan> en,
@@ -21,7 +28,7 @@ TextSpan alocSpan({
   TextStyle? style,
 }) {
   final baseStyle = style ?? Theme.of(context).textTheme.bodyMedium;
-  final lc = LocaleSwitcher.localeBestMatch.languageCode;
+  final lc = Localizations.localeOf(context).languageCode;
 
   List<InlineSpan> pick() {
     switch (lc) {
@@ -40,5 +47,7 @@ TextSpan alocSpan({
 /// Convenience builders
 TextSpan t(String s) => TextSpan(text: s);
 
-TextSpan b(String s) =>
-    TextSpan(text: s, style: const TextStyle(fontWeight: FontWeight.bold));
+TextSpan b(String s) => TextSpan(
+  text: s,
+  style: const TextStyle(fontWeight: FontWeight.bold),
+);

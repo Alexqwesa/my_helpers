@@ -1,5 +1,6 @@
-import 'package:locale_switcher/locale_switcher.dart';
 import 'package:flutter/material.dart';
+import 'package:locale_switcher/locale_switcher.dart';
+
 import 'init.dart';
 
 /// Configuration for how `aloc(all: true)` should order / filter languages.
@@ -47,14 +48,33 @@ String aloc(String input, {bool all = false, String? langCode}) {
 
   // if(!context.mounted) return defaultText;
   // final locale = Localizations.localeOf(context).languageCode.toLowerCase();
-  final locale =
-      (langCode ?? LocaleSwitcher.localeBestMatch.languageCode).toLowerCase();
+  final locale = (langCode ?? LocaleSwitcher.localeBestMatch.languageCode)
+      .toLowerCase();
 
   if (locale == 'vi') return viText;
   if (locale == 'ru') return ruText;
 
   // todo support AppLocalizations here
   return defaultText;
+}
+
+extension AlocBuildContext on BuildContext {
+  String aloc(String input, {bool all = false}) {
+    return _alocWithLangCode(
+      input,
+      all: all,
+      langCode: Localizations
+          .localeOf(this)
+          .languageCode,
+    );
+  }
+}
+
+String _alocWithLangCode(String input, {
+  bool all = false,
+  required String langCode,
+}) {
+  return aloc(input, all: all, langCode: langCode);
 }
 
 extension StringX on String? {
@@ -72,8 +92,13 @@ TextSpan alocSpan({
   required List<InlineSpan> ru,
   TextStyle? style,
 }) {
-  final baseStyle = style ?? Theme.of(context).textTheme.bodyMedium;
-  final lc = LocaleSwitcher.localeBestMatch.languageCode;
+  final baseStyle = style ?? Theme
+      .of(context)
+      .textTheme
+      .bodyMedium;
+  final lc = Localizations
+      .localeOf(context)
+      .languageCode;
 
   List<InlineSpan> pick() {
     switch (lc) {
@@ -93,4 +118,7 @@ TextSpan alocSpan({
 TextSpan t(String s) => TextSpan(text: s);
 
 TextSpan b(String s) =>
-    TextSpan(text: s, style: const TextStyle(fontWeight: FontWeight.bold));
+    TextSpan(
+      text: s,
+      style: const TextStyle(fontWeight: FontWeight.bold),
+    );

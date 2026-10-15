@@ -45,14 +45,7 @@ String localizedMsg(String message) {
 ///      MaterialApp.router(
 ///        scaffoldMessengerKey: NotificationService.messengerKey,
 
-
-enum _NotificationKind {
-  ok,
-  error,
-  warning,
-  dev,
-  short,
-}
+enum _NotificationKind { ok, error, warning, dev, short }
 
 class NotificationService {
   static final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -74,6 +67,31 @@ class NotificationService {
     }
   }
 
+  static String _locFromContext(BuildContext context, String message) {
+    final normalized = message.replaceAll(r'\n', '\n');
+    final pipes = RegExp(r'\|')
+        .allMatches(normalized)
+        .length;
+
+    try {
+      if (pipes == 2) {
+        return context.aloc(normalized);
+      }
+
+      if (pipes == 4) {
+        final first = normalized.indexOf('|');
+        final last = normalized.lastIndexOf('|');
+        if (first != -1 && last != -1 && last > first) {
+          return context.aloc(normalized.substring(first + 1, last));
+        }
+      }
+    } catch (_) {
+      return _loc(message);
+    }
+
+    return normalized;
+  }
+
   // ───────── Queue + dedupe ─────────
 
   static final Queue<_QueuedNotification> _queue = Queue<_QueuedNotification>();
@@ -93,15 +111,15 @@ class NotificationService {
       final msg = _pendingErrors.length == 1
           ? _pendingErrors.first
           : '${_pendingErrors.length} errors occurred|'
-              '${_pendingErrors.length} lỗi xảy ra|'
-              '${_pendingErrors.length} ошибок';
+          '${_pendingErrors.length} lỗi xảy ra|'
+          '${_pendingErrors.length} ошибок';
       showError(msg);
     } else if (showOks && _pendingOks.isNotEmpty) {
       final msg = _pendingOks.length == 1
           ? _pendingOks.first
           : '${_pendingOks.length} operations completed|'
-              '${_pendingOks.length} thao tác hoàn tất|'
-              '${_pendingOks.length} операций завершено';
+          '${_pendingOks.length} thao tác hoàn tất|'
+          '${_pendingOks.length} операций завершено';
       showOk(msg);
     }
     _pendingErrors.clear();
@@ -189,33 +207,38 @@ class NotificationService {
 
     final m = messengerKey.currentState;
     if (m == null || !m.mounted) {
-      dev.log('NotificationService.messengerKey state is not mounted or key is missed');
+      dev.log(
+        'NotificationService.messengerKey state is not mounted or key is missed',
+      );
       return;
     }
 
     final snackBar = SnackBar(
       duration: duration,
       backgroundColor: bg,
-      content: Row(
-        children: [
-          Expanded(child: Text(_loc(message))),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 20, color: Colors.white),
-            tooltip: aloc(
-              'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
+      content: Builder(
+        builder: (context) =>
+            Row(
+              children: [
+                Expanded(child: Text(_locFromContext(context, message))),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 20, color: Colors.white),
+                  tooltip: context.aloc(
+                    'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
+                  ),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: message));
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: Colors.white),
+                  tooltip: context.aloc('Close|Đóng|Закрыть'),
+                  onPressed: () {
+                    m.clearSnackBars();
+                  },
+                ),
+              ],
             ),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: message));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20, color: Colors.white),
-            tooltip: aloc('Close|Đóng|Закрыть'),
-            onPressed: () {
-              m.clearSnackBars();
-            },
-          ),
-        ],
       ),
     );
 
@@ -258,51 +281,20 @@ class NotificationService {
 
   // ───────── Public helpers (unchanged API) ─────────
 
+  static void showOk(String message, {Duration? duration}) =>
+      _show(_NotificationKind.ok, message, overrideDuration: duration);
 
-  static void showOk(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.ok,
-        message,
-        overrideDuration: duration,
-      );
+  static void showError(String message, {Duration? duration}) =>
+      _show(_NotificationKind.error, message, overrideDuration: duration);
 
-  static void showError(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.error,
-        message,
-        overrideDuration: duration,
-      );
+  static void showWarning(String message, {Duration? duration}) =>
+      _show(_NotificationKind.warning, message, overrideDuration: duration);
 
-  static void showWarning(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.warning,
-        message,
-        overrideDuration: duration,
-      );
+  static void showDev(String message, {Duration? duration}) =>
+      _show(_NotificationKind.dev, message, overrideDuration: duration);
 
-  static void showDev(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.dev,
-        message,
-        overrideDuration: duration,
-      );
-
-  static void showShort(String message, {
-    Duration? duration,
-  }) =>
-      _show(
-        _NotificationKind.short,
-        message,
-        overrideDuration: duration,
-      );
+  static void showShort(String message, {Duration? duration}) =>
+      _show(_NotificationKind.short, message, overrideDuration: duration);
 }
 
 class _NotificationStyle {
@@ -337,33 +329,22 @@ class _QueuedNotification {
 
 // Convenience functions (unchanged)
 
-
-void showErrorNotification(String message, {
-  Duration? duration,
-}) {
+void showErrorNotification(String message, {Duration? duration}) {
   NotificationService.showError(message, duration: duration);
 }
 
-void showDevNotification(String message, {
-  Duration? duration,
-}) {
+void showDevNotification(String message, {Duration? duration}) {
   NotificationService.showDev(message, duration: duration);
 }
 
-void showShortNotification(String message, {
-  Duration? duration,
-}) {
+void showShortNotification(String message, {Duration? duration}) {
   NotificationService.showShort(message, duration: duration);
 }
 
-void showOkNotification(String message, {
-  Duration? duration,
-}) {
+void showOkNotification(String message, {Duration? duration}) {
   NotificationService.showOk(message, duration: duration);
 }
 
-void showWarningNotification(String message, {
-  Duration? duration,
-}) {
+void showWarningNotification(String message, {Duration? duration}) {
   NotificationService.showWarning(message, duration: duration);
 }
