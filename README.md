@@ -1,10 +1,14 @@
-﻿# my_helpers
+# my_helpers
 
 Personal helper code used across my own projects.
 
 This repository is public only so my projects and CI can access it easily.
 It is task-specific, undocumented, unstable, and not intended as a reusable
 library for others.
+
+## AppTable
+
+See the [AppTable API and integration rules](packages/my_helpers_flutter/lib/features/meta_pluto_grid/README.md) for local and server-backed tables.
 
 ## Localization warning
 

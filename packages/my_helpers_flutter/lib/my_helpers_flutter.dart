@@ -2,6 +2,7 @@
 export 'features/aloc.dart';
 export 'features/base_widget_controller.dart';
 export 'features/directional_tooltip.dart';
+export 'features/drag_and_drop_upload_area.dart';
 export 'features/init.dart';
 export 'features/l10n/get_translations.dart';
 export 'features/l10n/locale.dart';
