@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:locale_switcher/locale_switcher.dart';
 import 'package:my_helpers_flutter/features/init.dart';
 import 'package:my_helpers_flutter/features/l10n/locale.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// {@category UI Root}

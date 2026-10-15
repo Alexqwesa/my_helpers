@@ -20,7 +20,7 @@ class DirectionalTooltip extends material.StatefulWidget {
   final bool? enableFeedback;
 
   const DirectionalTooltip({
-    material.Key? key,
+    super.key,
     this.message,
     this.richMessage,
     required this.child,
@@ -36,8 +36,7 @@ class DirectionalTooltip extends material.StatefulWidget {
     this.showDuration,
     this.triggerMode = material.TooltipTriggerMode.longPress,
     this.enableFeedback,
-  })  : assert(message != null || richMessage != null),
-        super(key: key);
+  }) : assert(message != null || richMessage != null);
 
   @override
   _TooltipState createState() => _TooltipState();
@@ -65,7 +64,7 @@ class _TooltipState extends material.State<DirectionalTooltip> {
       child: Tooltip(
         message: widget.message,
         richMessage: widget.richMessage,
-        height: widget.height,
+        constraints: BoxConstraints(minHeight: widget.height??0),
         padding: widget.padding,
         margin: widget.margin,
         verticalOffset: widget.verticalOffset,

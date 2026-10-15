@@ -1,7 +1,6 @@
 ﻿
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 /// Type alias to clearly indicate the listen function signature.
 typedef RefListener =
