@@ -36,7 +36,7 @@ class AppTable<T extends Object> extends StatelessWidget {
   final List<AppTableColumn> columns;
   final List<T> items;
 
-  /// Change when data or the server query changes, to recreate the grid.
+  /// Change when data or the server query changes, to refresh the rows in place.
   final String revision;
   final int total;
   final int rowsPerPage;
@@ -69,22 +69,35 @@ class AppTable<T extends Object> extends StatelessWidget {
           reservedRight: onDetails == null ? 0 : infoWidth,
         );
         final visibleKeys = visible.map((c) => c.key).toSet();
-        final hidden = columns.where((c) => !visibleKeys.contains(c.key)).map((c) => c.key).toList();
+        final hidden = columns
+            .where((c) => !visibleKeys.contains(c.key))
+            .map((c) => c.key)
+            .toList();
         final hasInfo = hidden.isNotEmpty && onDetails != null;
-        final widths = _scaleWidths(visible, constraints.maxWidth - (hasInfo ? infoWidth : 0));
+        final widths = _scaleWidths(
+          visible,
+          constraints.maxWidth - (hasInfo ? infoWidth : 0),
+        );
         final gridColumns = <PlutoColumn>[
           for (final column in visible)
             PlutoColumn(
               field: column.key,
               title: column.header == null ? column.title : '',
-              titlePadding: column.header == null ? null : const EdgeInsets.only(left: 8, top: 4, bottom: 4),
+              titlePadding: column.header == null
+                  ? null
+                  : const EdgeInsets.only(left: 8, top: 4, bottom: 4),
               titleSpan: column.header == null
                   ? null
                   : WidgetSpan(
                       alignment: PlaceholderAlignment.middle,
                       child: Row(
                         children: [
-                          Expanded(child: Text(column.title, overflow: TextOverflow.ellipsis)),
+                          Expanded(
+                            child: Text(
+                              column.title,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                           const SizedBox(width: 2),
                           column.header!,
                           const SizedBox(width: 40),
@@ -97,7 +110,8 @@ class AppTable<T extends Object> extends StatelessWidget {
               enableSorting: column.sortable,
               width: widths[column.key]!,
               minWidth: column.minWidth,
-              renderer: (ctx) => cellBuilder(context, ctx.cell.value as T, column.key),
+              renderer: (ctx) =>
+                  cellBuilder(context, ctx.cell.value as T, column.key),
             ),
           if (hasInfo)
             PlutoColumn(
@@ -128,47 +142,64 @@ class AppTable<T extends Object> extends StatelessWidget {
               Expanded(
                 child: Listener(
                   onPointerDown: (event) => pointerPosition = event.position,
-                  child: PlutoGrid(
-                    key: ValueKey('$lang|$revision|${visibleKeys.join(",")}|$sortField|$sortAscending'),
-                    columnMenuDelegate: const PlutoColumnMenuDelegateNoAutoFit(),
-                    columns: gridColumns,
-                    rows: [
-                      for (final item in items)
-                        PlutoRow(
-                          cells: {
-                            for (final field in visibleKeys) field: PlutoCell(value: item),
-                            if (hasInfo) '__info__': PlutoCell(value: item),
-                          },
-                        ),
-                    ],
-                    mode: PlutoGridMode.select,
-                    configuration: PlutoGridConfiguration(
-                      localeText: buildPlutoLocaleText(lang),
-                      style: PlutoGridStyleConfig(
-                        rowHeight: rowHeight,
-                        columnHeight: 56,
-                        gridBorderColor: theme.colorScheme.outlineVariant,
-                      ),
+                  child: _AppTableGrid(
+                    key: ValueKey(
+                      '$lang|${visibleKeys.join(",")}|$hasInfo|$sortField|$sortAscending',
                     ),
-                    onLoaded: (event) {
-                      final sm = event.stateManager
-                        ..setFilterOnlyEvent(true)
-                        ..setSortOnlyEvent(true)
-                        ..setSelectingMode(PlutoGridSelectingMode.row);
-                      for (final column in sm.columns) {
-                        column.sort = column.field == sortField
-                            ? (sortAscending ? PlutoColumnSort.ascending : PlutoColumnSort.descending)
-                            : PlutoColumnSort.none;
-                      }
-                      sm.notifyListeners();
-                      onLoaded?.call(event);
-                    },
-                    onSorted: (event) => onSort(event.column.field, ascending: event.column.sort.isAscending),
-                    onSelected: (event) {
-                      final row = event.row;
-                      if (row == null || row.cells.isEmpty) return;
-                      onRowTap?.call(row.cells.values.first.value as T, pointerPosition);
-                    },
+                    revision: revision,
+                    items: items,
+                    builder: (captureLoaded) => PlutoGrid(
+                      columnMenuDelegate:
+                          const PlutoColumnMenuDelegateNoAutoFit(),
+                      columns: gridColumns,
+                      rows: [
+                        for (final item in items)
+                          PlutoRow(
+                            cells: {
+                              for (final field in visibleKeys)
+                                field: PlutoCell(value: item),
+                              if (hasInfo) '__info__': PlutoCell(value: item),
+                            },
+                          ),
+                      ],
+                      mode: PlutoGridMode.select,
+                      configuration: PlutoGridConfiguration(
+                        localeText: buildPlutoLocaleText(lang),
+                        style: PlutoGridStyleConfig(
+                          rowHeight: rowHeight,
+                          columnHeight: 56,
+                          gridBorderColor: theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      onLoaded: (event) {
+                        captureLoaded(event);
+                        final sm = event.stateManager
+                          ..setFilterOnlyEvent(true)
+                          ..setSortOnlyEvent(true)
+                          ..setSelectingMode(PlutoGridSelectingMode.row);
+                        for (final column in sm.columns) {
+                          column.sort = column.field == sortField
+                              ? (sortAscending
+                                    ? PlutoColumnSort.ascending
+                                    : PlutoColumnSort.descending)
+                              : PlutoColumnSort.none;
+                        }
+                        sm.notifyListeners();
+                        onLoaded?.call(event);
+                      },
+                      onSorted: (event) => onSort(
+                        event.column.field,
+                        ascending: event.column.sort.isAscending,
+                      ),
+                      onSelected: (event) {
+                        final row = event.row;
+                        if (row == null || row.cells.isEmpty) return;
+                        onRowTap?.call(
+                          row.cells.values.first.value as T,
+                          pointerPosition,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -179,7 +210,8 @@ class AppTable<T extends Object> extends StatelessWidget {
                 availableRowsPerPage: availableRowsPerPage,
                 onPageChanged: onPageChanged,
                 onRowsPerPageChanged: (size) {
-                  if (size != rowsPerPage) onPageSizeChanged(size, (page * rowsPerPage) ~/ size);
+                  if (size != rowsPerPage)
+                    onPageSizeChanged(size, (page * rowsPerPage) ~/ size);
                 },
               ),
             ],
@@ -190,12 +222,49 @@ class AppTable<T extends Object> extends StatelessWidget {
   }
 }
 
+// Keep Pluto's mounted state (and column widths) when the caller changes pages.
+class _AppTableGrid extends StatefulWidget {
+  const _AppTableGrid({
+    required this.revision,
+    required this.items,
+    required this.builder,
+    super.key,
+  });
+
+  final String revision;
+  final List<Object> items;
+  final PlutoGrid Function(PlutoOnLoadedEventCallback onLoaded) builder;
+
+  @override
+  State<_AppTableGrid> createState() => _AppTableGridState();
+}
+
+class _AppTableGridState extends State<_AppTableGrid> {
+  PlutoGridStateManager? _manager;
+
+  @override
+  Widget build(BuildContext context) {
+    final grid = widget.builder((event) => _manager = event.stateManager);
+    return grid;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppTableGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final manager = _manager;
+    if (manager != null &&
+        (widget.revision != oldWidget.revision ||
+            !identical(widget.items, oldWidget.items))) {
+      final grid = widget.builder((_) {});
+      manager.removeAllRows(notify: false);
+      manager.appendRows(grid.rows);
+    }
+  }
+}
+
 PlutoGridLocaleText buildPlutoLocaleText(String langCode) {
   return PlutoGridLocaleText(
-    unfreezeColumn: aloc(
-      'Unfreeze|Bỏ cố định|Открепить',
-      langCode: langCode,
-    ),
+    unfreezeColumn: aloc('Unfreeze|Bỏ cố định|Открепить', langCode: langCode),
     freezeColumnToStart: aloc(
       'Freeze to start|Cố định bên trái|Закрепить в начале',
       langCode: langCode,
@@ -208,10 +277,7 @@ PlutoGridLocaleText buildPlutoLocaleText(String langCode) {
       'Auto fit|Tự căn độ rộng|Автоматический размер',
       langCode: langCode,
     ),
-    hideColumn: aloc(
-      'Hide column|Ẩn cột|Скрыть колонку',
-      langCode: langCode,
-    ),
+    hideColumn: aloc('Hide column|Ẩn cột|Скрыть колонку', langCode: langCode),
     setColumns: aloc(
       'Set columns|Chọn cột|Выбрать колонки',
       langCode: langCode,
@@ -228,30 +294,15 @@ PlutoGridLocaleText buildPlutoLocaleText(String langCode) {
       'Column title|Tên cột|Название колонки',
       langCode: langCode,
     ),
-    filterColumn: aloc(
-      'Column|Cột|Колонка',
-      langCode: langCode,
-    ),
-    filterType: aloc(
-      'Type|Kiểu|Тип',
-      langCode: langCode,
-    ),
-    filterValue: aloc(
-      'Value|Giá trị|Значение',
-      langCode: langCode,
-    ),
+    filterColumn: aloc('Column|Cột|Колонка', langCode: langCode),
+    filterType: aloc('Type|Kiểu|Тип', langCode: langCode),
+    filterValue: aloc('Value|Giá trị|Значение', langCode: langCode),
     filterAllColumns: aloc(
       'All columns|Tất cả cột|Все колонки',
       langCode: langCode,
     ),
-    filterContains: aloc(
-      'Contains|Chứa|Содержит',
-      langCode: langCode,
-    ),
-    filterEquals: aloc(
-      'Equals|Bằng|Равно',
-      langCode: langCode,
-    ),
+    filterContains: aloc('Contains|Chứa|Содержит', langCode: langCode),
+    filterEquals: aloc('Equals|Bằng|Равно', langCode: langCode),
     filterStartsWith: aloc(
       'Starts with|Bắt đầu bằng|Начинается с',
       langCode: langCode,
@@ -268,10 +319,7 @@ PlutoGridLocaleText buildPlutoLocaleText(String langCode) {
       'Greater than or equal to|Lớn hơn hoặc bằng|Больше или равно',
       langCode: langCode,
     ),
-    filterLessThan: aloc(
-      'Less than|Nhỏ hơn|Меньше чем',
-      langCode: langCode,
-    ),
+    filterLessThan: aloc('Less than|Nhỏ hơn|Меньше чем', langCode: langCode),
     filterLessThanOrEqualTo: aloc(
       'Less than or equal to|Nhỏ hơn hoặc bằng|Меньше или равно',
       langCode: langCode,
@@ -289,7 +337,8 @@ PlutoGridLocaleText buildPlutoLocaleText(String langCode) {
   );
 }
 
-class PlutoColumnMenuDelegateNoAutoFit implements PlutoColumnMenuDelegate<PlutoGridColumnMenuItem> {
+class PlutoColumnMenuDelegateNoAutoFit
+    implements PlutoColumnMenuDelegate<PlutoGridColumnMenuItem> {
   const PlutoColumnMenuDelegateNoAutoFit();
 
   @override
@@ -304,7 +353,9 @@ class PlutoColumnMenuDelegateNoAutoFit implements PlutoColumnMenuDelegate<PlutoG
 
     final filtered = <PopupMenuEntry<PlutoGridColumnMenuItem>>[];
     for (final item in items) {
-      final value = item is PopupMenuItem<PlutoGridColumnMenuItem> ? item.value : null;
+      final value = item is PopupMenuItem<PlutoGridColumnMenuItem>
+          ? item.value
+          : null;
       if (value == PlutoGridColumnMenuItem.autoFit) {
         continue;
       }
@@ -319,7 +370,8 @@ class PlutoColumnMenuDelegateNoAutoFit implements PlutoColumnMenuDelegate<PlutoG
     }
 
     for (var i = filtered.length - 1; i > 0; i--) {
-      if (filtered[i] is PopupMenuDivider && filtered[i - 1] is PopupMenuDivider) {
+      if (filtered[i] is PopupMenuDivider &&
+          filtered[i - 1] is PopupMenuDivider) {
         filtered.removeAt(i);
       }
     }
@@ -388,25 +440,21 @@ List<AppTableColumn> _computeVisibleCols({
 }
 
 Map<String, double> _scaleWidths(List<AppTableColumn> cols, double maxWidth) {
-  final fixedTotal = cols.where((c) => c.fixedWidth != null).fold<double>(0, (s, c) => s + c.fixedWidth!);
+  final fixedTotal = cols
+      .where((c) => c.fixedWidth != null)
+      .fold<double>(0, (s, c) => s + c.fixedWidth!);
   final flexibleCols = cols.where((c) => c.fixedWidth == null).toList();
   final flexibleTotal = flexibleCols.fold<double>(0, (s, c) => s + c.minWidth);
   final remaining = maxWidth - fixedTotal;
 
   if (flexibleCols.isEmpty) {
-    return {
-      for (final c in cols) c.key: c.fixedWidth ?? c.minWidth,
-    };
+    return {for (final c in cols) c.key: c.fixedWidth ?? c.minWidth};
   }
 
   if (remaining <= 0 || flexibleTotal <= 0) {
-    return {
-      for (final c in cols) c.key: c.fixedWidth ?? c.minWidth,
-    };
+    return {for (final c in cols) c.key: c.fixedWidth ?? c.minWidth};
   }
 
   final scale = remaining / flexibleTotal;
-  return {
-    for (final c in cols) c.key: c.fixedWidth ?? (c.minWidth * scale),
-  };
+  return {for (final c in cols) c.key: c.fixedWidth ?? (c.minWidth * scale)};
 }

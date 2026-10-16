@@ -36,8 +36,9 @@ AppTable<Task>(
   Sort or fetch the full dataset in `onSort`, resetting the page to zero.
 - `onPageSizeChanged(size, page)` supplies the page retaining the first visible
   row. Update both values together in the feature query.
-- Change `revision` when the query or row data changes. The grid also recreates
-  when the locale, visible columns, or controlled sort changes.
+- Change `revision` when the query or row data changes. Rows refresh in place
+  when paging, preserving the mounted grid and column widths. The grid recreates
+  when the locale, visible columns, details column, or controlled sort changes.
 - Higher `hidePriority` values hide first. At least two columns remain visible;
   very narrow layouts may scroll. `fixedWidth` columns keep their width.
 - Optional `header` widgets appear beside the column title, for feature filters.
