@@ -7,7 +7,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 /// Called once for each accepted file. Uploads run sequentially.
-typedef UploadCallback = Future<void> Function(Uint8List data, String name);
+///
+/// Return `true` when the upload succeeded. Return `false` when it failed and
+/// the caller already reported that failure: [DragAndDropUploadArea.onSuccess]
+/// and [DragAndDropUploadArea.onError] are both skipped. Throw to report the
+/// failure through [DragAndDropUploadArea.onError].
+typedef UploadCallback = Future<bool> Function(Uint8List data, String name);
 
 enum ConcurrentDropPolicy {
   /// Decline a new batch while another upload is processing.
@@ -469,8 +474,8 @@ class DragAndDropUploadAreaState extends State<DragAndDropUploadArea> {
             _report(UploadAreaFailureKind.tooLarge, name: file.name);
             continue;
           }
-          await widget.onUpload(data, file.name);
-          if (mounted) _notifySuccess(file.name);
+          final uploaded = await widget.onUpload(data, file.name);
+          if (uploaded && mounted) _notifySuccess(file.name);
         } catch (error) {
           if (mounted) {
             _report(

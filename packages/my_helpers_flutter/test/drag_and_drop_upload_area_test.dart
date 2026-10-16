@@ -54,7 +54,7 @@ void main() {
   testWidgets(
     'locale changes rebuild labels and instance strings override locale',
     (tester) async {
-      final area = DragAndDropUploadArea(onUpload: (_, _) async {});
+      final area = DragAndDropUploadArea(onUpload: (_, _) async => true);
       Future<void> show(Locale locale, {UploadAreaStrings? strings}) =>
           tester.pumpWidget(
             MaterialApp(
@@ -66,7 +66,7 @@ void main() {
                     body: strings == null
                         ? area
                         : DragAndDropUploadArea(
-                            onUpload: (_, _) async {},
+                            onUpload: (_, _) async => true,
                             strings: strings,
                           ),
                   ),
@@ -96,6 +96,7 @@ void main() {
         onUpload: (bytes, name) async {
           receivedBytes = bytes;
           uploaded.add(name);
+          return true;
         },
         onSuccess: successes.add,
       ),
@@ -136,7 +137,10 @@ void main() {
           allowMultiple: true,
           allowedExtensions: const [' .TAR.GZ ', 'pdf'],
           maxFileSize: 3,
-          onUpload: (_, name) async => uploaded.add(name),
+          onUpload: (_, name) async {
+            uploaded.add(name);
+            return true;
+          },
           onError: errors.add,
           onSuccess: (_) {},
         ),
@@ -166,7 +170,10 @@ void main() {
         DragAndDropUploadArea(
           allowMultiple: true,
           directoryPolicy: policy,
-          onUpload: (_, name) async => uploaded.add(name),
+          onUpload: (_, name) async {
+            uploaded.add(name);
+            return true;
+          },
           onSuccess: (_) {},
           onError: errors.add,
         ),
@@ -209,6 +216,7 @@ void main() {
           onUpload: (_, name) async {
             uploaded.add(name);
             if (name == 'first') await gate.future;
+            return true;
           },
           onSuccess: (_) {},
           onError: errors.add,
@@ -253,6 +261,7 @@ void main() {
           allowMultiple: true,
           onUpload: (_, name) async {
             if (name == 'bad') throw cause;
+            return true;
           },
           onSuccess: successes.add,
           onError: errors.add,
@@ -267,6 +276,24 @@ void main() {
     },
   );
 
+  testWidgets('a false result skips success and error callbacks', (tester) async {
+    final errors = <UploadAreaFailure>[];
+    final successes = <String>[];
+    await mount(
+      tester,
+      DragAndDropUploadArea(
+        allowMultiple: true,
+        onUpload: (_, name) async => name != 'handled',
+        onSuccess: successes.add,
+        onError: errors.add,
+      ),
+    );
+    drop(tester, [file('handled'), file('good')]);
+    await tester.pumpAndSettle();
+    expect(errors, isEmpty);
+    expect(successes, ['good']);
+  });
+
   testWidgets(
     'disposal while uploading cancels queued files and notifications',
     (tester) async {
@@ -279,6 +306,7 @@ void main() {
           onUpload: (_, name) async {
             uploaded.add(name);
             await gate.future;
+            return true;
           },
           onSuccess: (_) => fail('No notification after disposal'),
         ),
@@ -296,7 +324,7 @@ void main() {
   testWidgets(
     'default notifications display upload success and validation errors',
     (tester) async {
-      await mount(tester, DragAndDropUploadArea(onUpload: (_, _) async {}));
+      await mount(tester, DragAndDropUploadArea(onUpload: (_, _) async => true));
       drop(tester, [file('done.txt')]);
       await tester.pumpAndSettle();
       expect(find.text('File uploaded: done.txt'), findsOneWidget);
@@ -351,6 +379,7 @@ void main() {
           onUpload: (bytes, name) async {
             received.add(bytes);
             names.add(name);
+            return true;
           },
           onSuccess: (_) {},
         ),
