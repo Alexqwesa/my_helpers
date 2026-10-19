@@ -32,6 +32,7 @@ void main() {
                 sortAscending: true,
                 availableRowsPerPage: const [10, 20],
                 cellBuilder: (_, item, _) => Text(item),
+                rowColorCallback: (_) => page == 0 ? Colors.red : Colors.green,
                 onSort: (_, {required ascending}) {},
                 onPageChanged: (value) => rebuild(() => page = value),
                 onPageSizeChanged: (_, _) {},
@@ -47,6 +48,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     final originalManager = manager;
+    Color currentFill() => manager.rowColorCallback!(
+      PlutoRowColorContext(
+        row: manager.rows.first,
+        rowIdx: 0,
+        stateManager: manager,
+      ),
+    );
+    expect(currentFill(), Colors.red);
     final originalState = tester.state(find.byType(PlutoGrid));
     manager.columns.first.width = 240;
     await tester.tap(find.byIcon(Icons.chevron_right));
@@ -55,6 +64,7 @@ void main() {
     expect(manager, same(originalManager));
     expect(manager.rows.single.cells['name']!.value, 'page-1');
     expect(manager.columns.first.width, 240);
+    expect(currentFill(), Colors.green);
     expect(find.text('page-1'), findsOneWidget);
     expect(find.text('page-0'), findsNothing);
     await tester.pumpAndSettle();
@@ -67,9 +77,14 @@ void main() {
     (tester) async {
       String? requestedField;
       bool? requestedAscending;
-      Future<void> showTable(String field, {required bool ascending}) async {
+      Future<void> showTable(
+        String field, {
+        required bool ascending,
+        bool dark = false,
+      }) async {
         await tester.pumpWidget(
           MaterialApp(
+            theme: dark ? ThemeData.dark() : ThemeData.light(),
             home: Scaffold(
               body: AppTable<String>(
                 columns: const [
@@ -124,6 +139,17 @@ void main() {
       grid = tester.widget<PlutoGrid>(find.byType(PlutoGrid));
       expect(grid.columns.first.sort, PlutoColumnSort.ascending);
       expect(grid.columns.last.sort, PlutoColumnSort.none);
+      await showTable('name', ascending: true, dark: true);
+      grid = tester.widget<PlutoGrid>(find.byType(PlutoGrid));
+      expect(
+        grid.configuration.style.gridBackgroundColor,
+        const PlutoGridStyleConfig.dark().gridBackgroundColor,
+      );
+      expect(
+        grid.configuration.style.cellTextStyle.color,
+        const PlutoGridStyleConfig.dark().cellTextStyle.color,
+      );
+
       expect(tester.takeException(), isNull);
     },
   );

@@ -26,6 +26,7 @@ class AppTable<T extends Object> extends StatelessWidget {
     this.onRowTap,
     this.onDetails,
     this.onLoaded,
+    this.rowColorCallback,
     this.rowHeight = 40,
     super.key,
   }) : assert(rowsPerPage > 0, 'rowsPerPage must be positive'),
@@ -55,6 +56,9 @@ class AppTable<T extends Object> extends StatelessWidget {
   final void Function(T item, Offset position)? onRowTap;
   final void Function(T item, List<String> hiddenFields)? onDetails;
   final PlutoOnLoadedEventCallback? onLoaded;
+
+  /// Supplies the row background using the current page's item.
+  final Color? Function(T item)? rowColorCallback;
 
   @override
   Widget build(BuildContext context) {
@@ -144,11 +148,17 @@ class AppTable<T extends Object> extends StatelessWidget {
                   onPointerDown: (event) => pointerPosition = event.position,
                   child: _AppTableGrid(
                     key: ValueKey(
-                      '$lang|${visibleKeys.join(",")}|$hasInfo|$sortField|$sortAscending',
+                      '$lang|${theme.brightness.name}|${visibleKeys.join(",")}|$hasInfo|$sortField|$sortAscending',
                     ),
                     revision: revision,
                     items: items,
-                    builder: (captureLoaded) => PlutoGrid(
+                    rowColorCallback: (rowContext) =>
+                        rowColorCallback?.call(
+                          rowContext.row.cells.values.first.value as T,
+                        ) ??
+                        theme.colorScheme.surface,
+                    builder: (captureLoaded, currentRowColor) => PlutoGrid(
+                      rowColorCallback: currentRowColor,
                       columnMenuDelegate:
                           const PlutoColumnMenuDelegateNoAutoFit(),
                       columns: gridColumns,
@@ -165,11 +175,16 @@ class AppTable<T extends Object> extends StatelessWidget {
                       mode: PlutoGridMode.select,
                       configuration: PlutoGridConfiguration(
                         localeText: buildPlutoLocaleText(lang),
-                        style: PlutoGridStyleConfig(
-                          rowHeight: rowHeight,
-                          columnHeight: 56,
-                          gridBorderColor: theme.colorScheme.outlineVariant,
-                        ),
+                        style:
+                            (theme.brightness == Brightness.dark
+                                    ? const PlutoGridStyleConfig.dark()
+                                    : const PlutoGridStyleConfig())
+                                .copyWith(
+                                  rowHeight: rowHeight,
+                                  columnHeight: 56,
+                                  gridBorderColor:
+                                      theme.colorScheme.outlineVariant,
+                                ),
                       ),
                       onLoaded: (event) {
                         captureLoaded(event);
@@ -228,12 +243,18 @@ class _AppTableGrid extends StatefulWidget {
     required this.revision,
     required this.items,
     required this.builder,
+    required this.rowColorCallback,
     super.key,
   });
 
   final String revision;
   final List<Object> items;
-  final PlutoGrid Function(PlutoOnLoadedEventCallback onLoaded) builder;
+  final PlutoRowColorCallback rowColorCallback;
+  final PlutoGrid Function(
+    PlutoOnLoadedEventCallback onLoaded,
+    PlutoRowColorCallback rowColor,
+  )
+  builder;
 
   @override
   State<_AppTableGrid> createState() => _AppTableGridState();
@@ -242,9 +263,15 @@ class _AppTableGrid extends StatefulWidget {
 class _AppTableGridState extends State<_AppTableGrid> {
   PlutoGridStateManager? _manager;
 
+  Color _rowColor(PlutoRowColorContext context) =>
+      widget.rowColorCallback(context);
+
   @override
   Widget build(BuildContext context) {
-    final grid = widget.builder((event) => _manager = event.stateManager);
+    final grid = widget.builder(
+      (event) => _manager = event.stateManager,
+      _rowColor,
+    );
     return grid;
   }
 
@@ -255,7 +282,7 @@ class _AppTableGridState extends State<_AppTableGrid> {
     if (manager != null &&
         (widget.revision != oldWidget.revision ||
             !identical(widget.items, oldWidget.items))) {
-      final grid = widget.builder((_) {});
+      final grid = widget.builder((_) {}, _rowColor);
       manager.removeAllRows(notify: false);
       manager.appendRows(grid.rows);
     }

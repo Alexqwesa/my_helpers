@@ -38,7 +38,8 @@ AppTable<Task>(
   row. Update both values together in the feature query.
 - Change `revision` when the query or row data changes. Rows refresh in place
   when paging, preserving the mounted grid and column widths. The grid recreates
-  when the locale, visible columns, details column, or controlled sort changes.
+  when the locale, theme brightness, visible columns, details column, or controlled
+  sort changes. Grid text and backgrounds follow the light or dark app theme.
 - Higher `hidePriority` values hide first. At least two columns remain visible;
   very narrow layouts may scroll. `fixedWidth` columns keep their width.
 - Optional `header` widgets appear beside the column title, for feature filters.
@@ -92,11 +93,9 @@ to the shared table must follow these rules:
   selector uses `title`, so an empty title leaves an unnamed selector entry.
 - **Header controls:** Avoid duplicate menu and resize icons. Coordinate custom
   header controls with Pluto's built-in controls so each action appears once.
-- **Row colors:** Provide a dedicated row-color callback on the shared table
-  and forward it through adapters to the underlying grid so feature-specific
-  row styling is preserved. The current `AppTable` API does not yet expose
-  this callback; add it when integrating row colors rather than relying on
-  cell rendering or `onLoaded` to preserve them.
+- **Row colors:** Pass `rowColorCallback: (item) => color` and forward it through
+  adapters. It reads the current page's item and refreshes without remounting
+  the grid. Use this instead of capturing page data in an `onLoaded` renderer.
 - **Search pickers:** Prefer
   [search_anchor_picker](https://pub.dev/packages/search_anchor_picker) for
   searchable picker controls, including table filters.
