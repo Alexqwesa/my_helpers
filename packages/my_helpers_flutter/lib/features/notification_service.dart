@@ -93,6 +93,7 @@ class NotificationService {
 
   static final Queue<_QueuedNotification> _queue = Queue<_QueuedNotification>();
   static bool _isDraining = false;
+  static int _drainGeneration = 0;
   static bool _suppressNotifications = false;
   static final List<String> _pendingErrors = <String>[];
   static final List<String> _pendingOks = <String>[];
@@ -138,7 +139,11 @@ class NotificationService {
     }
   }
 
-  static void _show(_NotificationKind kind, String message, {Duration? overrideDuration}) {
+  static void _show(
+    _NotificationKind kind,
+    String message, {
+    Duration? overrideDuration,
+  }) {
     if (_suppressNotifications) {
       _enqueueWhileSuppressed(kind, message);
       return;
@@ -168,12 +173,25 @@ class NotificationService {
     }
   }
 
+  /// Drops anything still queued. Used so a failed test cannot block the next one.
+  @visibleForTesting
+  static void debugResetQueue() {
+    _drainGeneration++;
+    _queue.clear();
+    _isDraining = false;
+    _suppressNotifications = false;
+    _pendingErrors.clear();
+    _pendingOks.clear();
+    _pendingWarnings.clear();
+  }
+
   static Future<void> _drainQueue() async {
+    final generation = _drainGeneration;
     _isDraining = true;
 
     const maxRepeatedDuration = Duration(seconds: 4);
 
-    while (_queue.isNotEmpty) {
+    while (_queue.isNotEmpty && generation == _drainGeneration) {
       final item = _queue.removeFirst();
 
       final style = _styleForKind(item.kind);
@@ -191,45 +209,37 @@ class NotificationService {
       await _showNow(item.message, style.bgColor, duration);
     }
 
-    _isDraining = false;
+    if (generation == _drainGeneration) _isDraining = false;
   }
 
   // ───────── Actual display ─────────
 
-  static Future<void> _showNow(String message, Color bg, Duration duration) async {
+  static Future<void> _showNow(
+    String message,
+    Color bg,
+    Duration duration,
+  ) async {
     await _waitForStableFrame();
 
     final m = messengerKey.currentState;
     if (m == null || !m.mounted) {
-      dev.log('NotificationService.messengerKey state is not mounted or key is missed');
+      dev.log(
+        'NotificationService.messengerKey state is not mounted or key is missed',
+      );
       return;
     }
 
     final snackBar = SnackBar(
       duration: duration,
       backgroundColor: bg,
-      content: Builder(
-        builder: (context) => Row(
-          children: [
-            Expanded(child: Text(_locFromContext(context, message))),
-            IconButton(
-              icon: const Icon(Icons.copy, size: 20, color: Colors.white),
-              tooltip: context.aloc(
-                'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
-              ),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: message));
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 20, color: Colors.white),
-              tooltip: context.aloc('Close|Đóng|Закрыть'),
-              onPressed: () {
-                m.clearSnackBars();
-              },
-            ),
-          ],
-        ),
+      // Vertical space is owned by [_NotificationMessage] so the height cap
+      // includes it. Horizontal padding matches a fixed SnackBar.
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      dismissDirection: DismissDirection.down,
+      content: _NotificationMessage(
+        message: message,
+        onCopy: () => Clipboard.setData(ClipboardData(text: message)),
+        onClose: m.clearSnackBars,
       ),
     );
 
@@ -288,11 +298,217 @@ class NotificationService {
       _show(_NotificationKind.short, message, overrideDuration: duration);
 }
 
+/// Largest fraction of the available screen a notification may cover.
+const _maxScreenFraction = 0.9;
+
+/// Show the drag-to-hide handle once the notification covers this much of the screen.
+const _dragHandleScreenFraction = 0.3;
+
+const _contentVerticalPadding = 14.0;
+
+/// Screen metrics from the view itself. [SnackBar] wraps its content in a
+/// [SafeArea], which clears both padding and view padding before this widget
+/// builds, so [MediaQuery] here cannot see the inset that still adds height.
+_NoticeBounds _noticeBoundsOf(BuildContext context) {
+  final raw = MediaQueryData.fromView(View.of(context));
+  final keyboard = raw.viewInsets.bottom;
+  return _NoticeBounds(
+    screenHeight: raw.size.height,
+    keyboardInset: keyboard,
+    safeAreaBelow: math.max(0.0, raw.viewPadding.bottom - keyboard),
+  );
+}
+
+class _NoticeBounds {
+  const _NoticeBounds({
+    required this.screenHeight,
+    required this.keyboardInset,
+    required this.safeAreaBelow,
+  });
+
+  final double screenHeight;
+  final double keyboardInset;
+  final double safeAreaBelow;
+
+  /// Height of the snackbar body, excluding the safe-area padding below it.
+  double get maxBodyHeight {
+    final aboveKeyboard = math.max(0.0, screenHeight - keyboardInset);
+    final visibleCap = aboveKeyboard * _maxScreenFraction;
+    return math.max(0.0, visibleCap - safeAreaBelow);
+  }
+}
+
+class _NotificationMessage extends StatefulWidget {
+  const _NotificationMessage({
+    required this.message,
+    required this.onCopy,
+    required this.onClose,
+  });
+
+  final String message;
+  final VoidCallback onCopy;
+  final VoidCallback onClose;
+
+  @override
+  State<_NotificationMessage> createState() => _NotificationMessageState();
+}
+
+class _NotificationMessageState extends State<_NotificationMessage> {
+  final _bodyKey = GlobalKey();
+  final _textKey = GlobalKey();
+  bool _showHandle = false;
+  bool _measured = false;
+  int _measureAttempts = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleMeasure();
+  }
+
+  void _scheduleMeasure() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+  }
+
+  void _measure() {
+    if (!mounted || _measured) return;
+    final box = _bodyKey.currentContext?.findRenderObject() as RenderBox?;
+    final textContext = _textKey.currentContext;
+    final scrollable = textContext == null
+        ? null
+        : Scrollable.maybeOf(textContext);
+    final position = scrollable?.position;
+    if (box == null ||
+        !box.hasSize ||
+        position == null ||
+        !position.hasContentDimensions) {
+      if (_measureAttempts++ < 5) _scheduleMeasure();
+      return;
+    }
+
+    _measured = true;
+    final bounds = _noticeBoundsOf(context);
+    if (bounds.screenHeight <= 0) return;
+
+    final occupied = box.size.height + bounds.safeAreaBelow;
+    // Scrolling text can't also drag the snackbar away, so keep a handle then too.
+    final scrolls = position.maxScrollExtent > 1;
+    final show =
+        occupied >= bounds.screenHeight * _dragHandleScreenFraction || scrolls;
+    if (show) setState(() => _showHandle = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bounds = _noticeBoundsOf(context);
+    final maxContent = bounds.maxBodyHeight;
+    final handleExtent = _showHandle ? _DragHideIndicator.extent : 0.0;
+    final bodyMax = math.max(0.0, maxContent - handleExtent);
+    final display = NotificationService._locFromContext(
+      context,
+      widget.message,
+    );
+
+    return ClipRect(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxContent),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_showHandle)
+              _DragHideIndicator(
+                label: context.aloc(
+                  'Drag down to hide|Kéo xuống để ẩn|Потяните вниз, чтобы скрыть',
+                ),
+              ),
+            ConstrainedBox(
+              key: _bodyKey,
+              constraints: BoxConstraints(maxHeight: bodyMax),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: _showHandle ? 0 : _contentVerticalPadding,
+                  bottom: _contentVerticalPadding,
+                ),
+                child: Row(
+                  crossAxisAlignment: _showHandle
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        primary: false,
+                        child: SelectableText(display, key: _textKey),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.copy,
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                      tooltip: context.aloc(
+                        'Copy to clipboard|Sao chép vào bảng tạm|Копировать в буфер обмена',
+                      ),
+                      onPressed: widget.onCopy,
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close,
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                      tooltip: context.aloc('Close|Đóng|Закрыть'),
+                      onPressed: widget.onClose,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DragHideIndicator extends StatelessWidget {
+  const _DragHideIndicator({required this.label});
+
+  static const extent = 28.0;
+  static const indicatorKey = Key('notification-drag-hide');
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: label,
+      child: const SizedBox(
+        key: indicatorKey,
+        height: extent,
+        width: double.infinity,
+        child: Center(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Color(0xE6FFFFFF),
+              borderRadius: BorderRadius.all(Radius.circular(2)),
+            ),
+            child: SizedBox(width: 36, height: 4),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NotificationStyle {
   final Color bgColor;
   final Duration defaultDuration;
 
-  const _NotificationStyle({required this.bgColor, required this.defaultDuration});
+  const _NotificationStyle({
+    required this.bgColor,
+    required this.defaultDuration,
+  });
 }
 
 class _QueuedNotification {
