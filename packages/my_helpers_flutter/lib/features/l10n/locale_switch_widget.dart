@@ -35,7 +35,12 @@ final langsForSwitcherProvider = StateNotifierProvider<LangsForSwitcher, List<St
 );
 
 class LocaleSwitchWidget extends ConsumerWidget {
-  const LocaleSwitchWidget({super.key});
+  const LocaleSwitchWidget({super.key, this.showAuto = false});
+
+  /// Adds the "auto" entry (the language of the browser or the system) to the languages of [langsForSwitcherProvider].
+  /// With it the switch can show that no language was chosen yet; a chosen language is remembered by
+  /// `LocaleSwitcher` in the shared preferences, "auto" is remembered as `system`.
+  final bool showAuto;
 
   @override
   Widget build(BuildContext context, ref) {
@@ -51,12 +56,12 @@ class LocaleSwitchWidget extends ConsumerWidget {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: SizedBox(
-          width: langs.length * 50,
+          width: (langs.length + (showAuto ? 1 : 0)) * 50,
           child: LocaleSwitcher.custom(
             // numberOfShown: 2,
             builder: (langCodes1, context) {
               final langCodes = SupportedLocaleNames.fromEntries(
-                langCodes1.where((lc) => langs.contains(lc.language)),
+                langCodes1.where((lc) => langs.contains(lc.language) || (showAuto && lc.name == systemLocale)),
               );
               if (langCodes.length <= 1) {
                 // AnimatedToggleSwitch crash with one value
