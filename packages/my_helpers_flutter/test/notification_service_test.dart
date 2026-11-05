@@ -113,6 +113,220 @@ void main() {
       await closeNotice(tester);
     }
   });
+
+  group('flood protection', () {
+    testWidgets('texts starting the same way merge into one "+N similar"', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Other problem'); // occupies the screen
+      showErrorNotification('Failed to load user with id=1');
+      showErrorNotification('Failed to load user with id=2');
+      showErrorNotification('Failed to load user with id=3');
+
+      final toasts = await showAll(tester);
+
+      expect(toasts.map((t) => t.text), [
+        'Other problem',
+        'Failed to load user with id=1\n+2 similar',
+      ]);
+    });
+
+    testWidgets('identical repeats still collapse without a suffix', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Other problem');
+      for (var i = 0; i < 10; i++) {
+        showErrorNotification('Same error every time');
+      }
+
+      final toasts = await showAll(tester);
+
+      expect(toasts.map((t) => t.text), [
+        'Other problem',
+        'Same error every time',
+      ]);
+    });
+
+    testWidgets('different kinds never merge', (tester) async {
+      await mount(tester);
+      showErrorNotification('Other problem');
+      showErrorNotification('Failed to load user with id=1');
+      showOkNotification('Failed to load user with id=2');
+
+      final toasts = await showAll(tester);
+
+      expect(toasts.map((t) => t.text), [
+        'Other problem',
+        'Failed to load user with id=1',
+        'Failed to load user with id=2',
+      ]);
+    });
+
+    testWidgets('only 5 different notifications wait; the rest become one', (
+      tester,
+    ) async {
+      await mount(tester);
+      String distinct(int i) => String.fromCharCode(65 + i) * 25;
+
+      showErrorNotification(distinct(0)); // shown at once
+      for (var i = 1; i <= 12; i++) {
+        showErrorNotification(distinct(i));
+      }
+
+      final toasts = await showAll(tester);
+
+      expect(toasts.map((t) => t.text), [
+        distinct(0),
+        for (var i = 1; i <= 5; i++) distinct(i),
+        'More notifications: 7',
+      ]);
+    });
+
+    testWidgets('the "more" notice takes the most severe colour', (
+      tester,
+    ) async {
+      await mount(tester);
+      showOkNotification('Shown first');
+      for (var i = 1; i <= 5; i++) {
+        showOkNotification(String.fromCharCode(65 + i) * 25);
+      }
+      showOkNotification('Overflow one, ok');
+      showErrorNotification('Overflow two, error');
+
+      final toasts = await showAll(tester);
+
+      expect(toasts.last.text, 'More notifications: 2');
+      expect(toasts.last.color, Colors.red);
+    });
+
+    testWidgets('the queue accepts new notifications after it drained', (
+      tester,
+    ) async {
+      await mount(tester);
+      for (var i = 0; i < 12; i++) {
+        showErrorNotification(String.fromCharCode(65 + i) * 25);
+      }
+      expect((await showAll(tester)).length, 7);
+
+      showErrorNotification('Fresh start');
+      expect((await showAll(tester)).map((t) => t.text), ['Fresh start']);
+    });
+
+    testWidgets('configure(maxQueued:) changes how many wait', (tester) async {
+      await mount(tester);
+      NotificationService.configure(maxQueued: 2);
+      String distinct(int i) => String.fromCharCode(65 + i) * 25;
+
+      for (var i = 0; i < 8; i++) {
+        showErrorNotification(distinct(i));
+      }
+
+      expect((await showAll(tester)).map((t) => t.text), [
+        distinct(0),
+        distinct(1),
+        distinct(2),
+        'More notifications: 5',
+      ]);
+    });
+
+    testWidgets('configure(similarPrefixLength:) changes what counts as similar',
+        (tester) async {
+      await mount(tester);
+      NotificationService.configure(similarPrefixLength: 5);
+      showErrorNotification('Other problem');
+      showErrorNotification('Alpha one');
+      showErrorNotification('Alpha two');
+
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Other problem',
+        'Alpha one\n+1 similar',
+      ]);
+    });
+
+    test('configure keeps omitted values and rejects bad ones', () {
+      NotificationService.debugResetQueue();
+      NotificationService.configure(maxQueued: 9);
+      expect(NotificationService.maxQueued, 9);
+      expect(
+        NotificationService.similarPrefixLength,
+        NotificationService.defaultSimilarPrefixLength,
+      );
+      expect(
+        () => NotificationService.configure(maxQueued: 0),
+        throwsArgumentError,
+      );
+      expect(
+        () => NotificationService.configure(similarPrefixLength: -1),
+        throwsArgumentError,
+      );
+      expect(NotificationService.maxQueued, 9);
+
+      NotificationService.debugResetQueue();
+      expect(NotificationService.maxQueued, NotificationService.defaultMaxQueued);
+    });
+
+    testWidgets('discardQueue drops what waits but not what is on screen', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Shown now');
+      showErrorNotification('Never shown one');
+      showErrorNotification('Never shown two');
+
+      NotificationService.discardQueue();
+
+      expect((await showAll(tester)).map((t) => t.text), ['Shown now']);
+    });
+
+    testWidgets('discardQueue(dismissCurrent: true) also hides the visible one', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Shown now');
+      showErrorNotification('Never shown');
+      for (var i = 0; i < 10 && find.byType(SnackBar).evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.byType(SnackBar), findsOneWidget);
+
+      NotificationService.discardQueue(dismissCurrent: true);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(SnackBar), findsNothing);
+      expect(await showAll(tester), isEmpty);
+    });
+  });
+}
+
+typedef Toast = ({String text, Color? color});
+
+/// Lets the queue run to the end and returns what was on screen, in order.
+Future<List<Toast>> showAll(WidgetTester tester) async {
+  final toasts = <Toast>[];
+  for (var guard = 0; guard < 40; guard++) {
+    var visible = false;
+    for (var i = 0; i < 20 && !visible; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      visible = find.byType(SnackBar).evaluate().isNotEmpty;
+    }
+    if (!visible) break;
+    await tester.pump(const Duration(milliseconds: 400));
+    final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+    final text = tester.widget<SelectableText>(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.byType(SelectableText),
+      ),
+    );
+    toasts.add((text: text.data ?? '', color: snackBar.backgroundColor));
+    NotificationService.messengerKey.currentState!.clearSnackBars();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+  return toasts;
 }
 
 Future<void> mount(

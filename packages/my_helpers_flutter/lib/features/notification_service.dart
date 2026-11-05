@@ -99,6 +99,103 @@ class NotificationService {
   static final List<String> _pendingOks = <String>[];
   static final List<String> _pendingWarnings = <String>[];
 
+  static const defaultMaxQueued = 5;
+  static const defaultSimilarPrefixLength = 30;
+
+  static int _maxQueued = defaultMaxQueued;
+  static int _similarPrefixLength = defaultSimilarPrefixLength;
+
+  /// At most this many different notifications wait in the queue. Anything
+  /// beyond that is folded into a single "more notifications" entry placed
+  /// after them, so a flood cannot keep the user reading toasts for minutes.
+  static int get maxQueued => _maxQueued;
+
+  /// Notifications of the same kind whose texts start with the same this-many
+  /// characters are treated as one: ids, counters and exception details
+  /// normally come after that prefix. The first text is shown, followed by a
+  /// "+N similar" line. Texts no longer than this must match completely.
+  static int get similarPrefixLength => _similarPrefixLength;
+
+  /// Changes the flood-protection limits; omitted arguments keep their value.
+  /// Call it once at start-up, e.g. in `main()`.
+  ///
+  /// [maxQueued] must be at least 1. [similarPrefixLength] must not be
+  /// negative; pass a large number to merge only identical texts, or 0 to merge
+  /// everything of the same kind. Notifications that are already waiting keep
+  /// their place; the new limits apply to what arrives afterwards.
+  static void configure({int? maxQueued, int? similarPrefixLength}) {
+    if (maxQueued != null && maxQueued < 1) {
+      throw ArgumentError.value(maxQueued, 'maxQueued', 'must be at least 1');
+    }
+    if (similarPrefixLength != null && similarPrefixLength < 0) {
+      throw ArgumentError.value(
+        similarPrefixLength,
+        'similarPrefixLength',
+        'must not be negative',
+      );
+    }
+    _maxQueued = maxQueued ?? _maxQueued;
+    _similarPrefixLength = similarPrefixLength ?? _similarPrefixLength;
+  }
+
+  /// Drops every notification that is still waiting, including the "more
+  /// notifications" summary. A notification already taken from the queue
+  /// finishes normally, unless [dismissCurrent] is true and it is visible.
+  /// Notifications collected by [suppressSnackbars] are not touched.
+  static void discardQueue({bool dismissCurrent = false}) {
+    _queue.clear();
+    _overflow = null;
+    if (dismissCurrent) messengerKey.currentState?.clearSnackBars();
+  }
+
+  /// Shown at least this long: it summarises several notifications.
+  static const _overflowMinDuration = Duration(seconds: 3);
+
+  /// The "more notifications" entry while it waits at the end of [_queue].
+  static _QueuedNotification? _overflow;
+
+  static String _groupKey(_NotificationKind kind, String message) {
+    final text = message.trim();
+    final prefix = text.length <= _similarPrefixLength
+        ? text
+        : text.substring(0, _similarPrefixLength);
+    return '${kind.name}\u0000$prefix';
+  }
+
+  static int _severity(_NotificationKind kind) => switch (kind) {
+    _NotificationKind.short => 0,
+    _NotificationKind.ok => 1,
+    _NotificationKind.dev => 2,
+    _NotificationKind.warning => 3,
+    _NotificationKind.error => 4,
+  };
+
+  static String _overflowMessage(int count) =>
+      'More notifications: $count|'
+      'Thêm thông báo: $count|'
+      'Ещё уведомлений: $count';
+
+  static String _similarSuffix(int count) =>
+      '+$count similar|+$count tương tự|+$count похожих';
+
+  static void _addToOverflow(_NotificationKind kind) {
+    final overflow = _overflow;
+    if (overflow == null) {
+      final created = _QueuedNotification(
+        kind: kind,
+        message: '',
+        repeatCount: 1,
+        isOverflow: true,
+      );
+      _overflow = created;
+      _queue.add(created);
+      return;
+    }
+    overflow.repeatCount++;
+    // Keep the most severe colour of everything folded into it.
+    if (_severity(kind) > _severity(overflow.kind)) overflow.kind = kind;
+  }
+
   static void suppressSnackbars() {
     _suppressNotifications = true;
   }
@@ -148,15 +245,20 @@ class NotificationService {
       _enqueueWhileSuppressed(kind, message);
       return;
     }
+    final key = _groupKey(kind, message);
     final existing = _queue.firstWhere(
-      (q) => q.kind == kind && q.message == message,
+      (q) => !q.isOverflow && _groupKey(q.kind, q.message) == key,
       orElse: () => _QueuedNotification.none,
     );
 
     if (!identical(existing, _QueuedNotification.none)) {
-      // Same kind+text already in queue → just bump its repeat count
+      // Same kind and same start of the text already waiting → count it there
       existing.repeatCount++;
+      if (existing.message != message) existing.similarCount++;
       existing.overrideDuration = overrideDuration ?? existing.overrideDuration;
+    } else if (_overflow != null || _queue.length >= _maxQueued) {
+      // Queue is full: everything new goes into the one "more" entry.
+      _addToOverflow(kind);
     } else {
       _queue.add(
         _QueuedNotification(
@@ -178,6 +280,9 @@ class NotificationService {
   static void debugResetQueue() {
     _drainGeneration++;
     _queue.clear();
+    _overflow = null;
+    _maxQueued = defaultMaxQueued;
+    _similarPrefixLength = defaultSimilarPrefixLength;
     _isDraining = false;
     _suppressNotifications = false;
     _pendingErrors.clear();
@@ -193,20 +298,28 @@ class NotificationService {
 
     while (_queue.isNotEmpty && generation == _drainGeneration) {
       final item = _queue.removeFirst();
+      if (identical(item, _overflow)) _overflow = null;
 
       final style = _styleForKind(item.kind);
       var duration = item.overrideDuration ?? style.defaultDuration;
 
-      // Extend duration based on how many times this exact notification was requested.
-      // If the base duration is already longer than the repeat max, keep the base duration.
-      if (item.repeatCount > 1 && duration < maxRepeatedDuration) {
+      if (item.isOverflow) {
+        if (duration < _overflowMinDuration) duration = _overflowMinDuration;
+      } else if (item.repeatCount > 1 && duration < maxRepeatedDuration) {
+        // Extend duration based on how many times this notification was requested.
+        // If the base duration is already longer than the repeat max, keep the base duration.
         final repeatedMillis = duration.inMilliseconds * item.repeatCount;
         final maxMillis = maxRepeatedDuration.inMilliseconds;
 
         duration = Duration(milliseconds: math.min(repeatedMillis, maxMillis));
       }
 
-      await _showNow(item.message, style.bgColor, duration);
+      await _showNow(
+        item.isOverflow ? _overflowMessage(item.repeatCount) : item.message,
+        style.bgColor,
+        duration,
+        suffix: item.similarCount > 0 ? _similarSuffix(item.similarCount) : null,
+      );
     }
 
     if (generation == _drainGeneration) _isDraining = false;
@@ -217,8 +330,9 @@ class NotificationService {
   static Future<void> _showNow(
     String message,
     Color bg,
-    Duration duration,
-  ) async {
+    Duration duration, {
+    String? suffix,
+  }) async {
     await _waitForStableFrame();
 
     final m = messengerKey.currentState;
@@ -238,6 +352,7 @@ class NotificationService {
       dismissDirection: DismissDirection.down,
       content: _NotificationMessage(
         message: message,
+        suffix: suffix,
         onCopy: () => Clipboard.setData(ClipboardData(text: message)),
         onClose: m.clearSnackBars,
       ),
@@ -343,9 +458,13 @@ class _NotificationMessage extends StatefulWidget {
     required this.message,
     required this.onCopy,
     required this.onClose,
+    this.suffix,
   });
 
   final String message;
+
+  /// Extra line shown under [message], e.g. "+3 similar" ("en|vi|ru" format).
+  final String? suffix;
   final VoidCallback onCopy;
   final VoidCallback onClose;
 
@@ -404,10 +523,10 @@ class _NotificationMessageState extends State<_NotificationMessage> {
     final maxContent = bounds.maxBodyHeight;
     final handleExtent = _showHandle ? _DragHideIndicator.extent : 0.0;
     final bodyMax = math.max(0.0, maxContent - handleExtent);
-    final display = NotificationService._locFromContext(
-      context,
-      widget.message,
-    );
+    final suffix = widget.suffix;
+    final display =
+        NotificationService._locFromContext(context, widget.message) +
+        (suffix == null ? '' : '\n${context.aloc(suffix)}');
 
     return ClipRect(
       child: ConstrainedBox(
@@ -517,12 +636,22 @@ class _QueuedNotification {
     required this.message,
     required this.repeatCount,
     this.overrideDuration,
+    this.isOverflow = false,
   });
 
-  final _NotificationKind kind;
+  /// Not final for the overflow entry, which takes the most severe kind folded in.
+  _NotificationKind kind;
   final String message;
+
+  /// Times this was requested; for the overflow entry, how many were folded in.
   int repeatCount;
+
+  /// Other texts merged into this one because they start the same way.
+  int similarCount = 0;
   Duration? overrideDuration;
+
+  /// The single "more notifications" entry at the end of the queue.
+  final bool isOverflow;
 
   static final none = _QueuedNotification(
     kind: _NotificationKind.ok,
