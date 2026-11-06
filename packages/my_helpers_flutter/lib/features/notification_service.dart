@@ -46,6 +46,11 @@ String localizedMsg(String message) {
 
 enum _NotificationKind { ok, error, warning, dev, short }
 
+/// Queued notifications with exact-text deduplication by default.
+///
+/// The show methods accept a stable `groupKey` to intentionally group different
+/// messages of the same kind. The first text is retained; differing texts add
+/// a live similar-count suffix. Active notifications participate in grouping.
 class NotificationService {
   static final messengerKey = GlobalKey<ScaffoldMessengerState>();
 
@@ -93,6 +98,8 @@ class NotificationService {
 
   static final Queue<_QueuedNotification> _queue = Queue<_QueuedNotification>();
   static bool _isDraining = false;
+  static _QueuedNotification? _active;
+  static bool _prefixGrouping = false;
   static int _drainGeneration = 0;
   static bool _suppressNotifications = false;
   static final List<String> _pendingErrors = <String>[];
@@ -110,19 +117,14 @@ class NotificationService {
   /// after them, so a flood cannot keep the user reading toasts for minutes.
   static int get maxQueued => _maxQueued;
 
-  /// Notifications of the same kind whose texts start with the same this-many
-  /// characters are treated as one: ids, counters and exception details
-  /// normally come after that prefix. The first text is shown, followed by a
-  /// "+N similar" line. Texts no longer than this must match completely.
+  /// Prefix length used only when explicitly enabled by [configure].
+  /// Prefer a stable groupKey instead of grouping by display text.
   static int get similarPrefixLength => _similarPrefixLength;
 
-  /// Changes the flood-protection limits; omitted arguments keep their value.
-  /// Call it once at start-up, e.g. in `main()`.
-  ///
-  /// [maxQueued] must be at least 1. [similarPrefixLength] must not be
-  /// negative; pass a large number to merge only identical texts, or 0 to merge
-  /// everything of the same kind. Notifications that are already waiting keep
-  /// their place; the new limits apply to what arrives afterwards.
+  /// Changes flood limits. Supplying [similarPrefixLength] opts into legacy
+  /// prefix grouping; by default only exact texts of the same kind merge.
+  /// [maxQueued] must be positive and [similarPrefixLength] nonnegative.
+  /// Explicit groupKey values always take precedence over prefix grouping.
   static void configure({int? maxQueued, int? similarPrefixLength}) {
     if (maxQueued != null && maxQueued < 1) {
       throw ArgumentError.value(maxQueued, 'maxQueued', 'must be at least 1');
@@ -136,16 +138,23 @@ class NotificationService {
     }
     _maxQueued = maxQueued ?? _maxQueued;
     _similarPrefixLength = similarPrefixLength ?? _similarPrefixLength;
+    if (similarPrefixLength != null) _prefixGrouping = true;
   }
 
   /// Drops every notification that is still waiting, including the "more
   /// notifications" summary. A notification already taken from the queue
-  /// finishes normally, unless [dismissCurrent] is true and it is visible.
+  /// finishes normally, unless [dismissCurrent] is true. This also cancels
+  /// an active notification waiting for its first frame.
   /// Notifications collected by [suppressSnackbars] are not touched.
   static void discardQueue({bool dismissCurrent = false}) {
     _queue.clear();
     _overflow = null;
-    if (dismissCurrent) messengerKey.currentState?.clearSnackBars();
+    if (dismissCurrent) {
+      _drainGeneration++;
+      _active = null;
+      _isDraining = false;
+      messengerKey.currentState?.clearSnackBars();
+    }
   }
 
   /// Shown at least this long: it summarises several notifications.
@@ -154,12 +163,26 @@ class NotificationService {
   /// The "more notifications" entry while it waits at the end of [_queue].
   static _QueuedNotification? _overflow;
 
-  static String _groupKey(_NotificationKind kind, String message) {
-    final text = message.trim();
+  static String _groupKey(
+    _NotificationKind kind,
+    String message,
+    String? groupKey,
+  ) {
+    if (groupKey != null) return '${kind.name}\u0000group\u0000$groupKey';
+    if (!_prefixGrouping) return '${kind.name}\u0000text\u0000$message';
+    // Legacy opt-in: only the source language participates, never translation lengths.
+    final parts = message.split('|');
+    final text =
+        (parts.length == 3
+                ? parts.first
+                : parts.length == 5
+                ? parts[1]
+                : message)
+            .trim();
     final prefix = text.length <= _similarPrefixLength
         ? text
         : text.substring(0, _similarPrefixLength);
-    return '${kind.name}\u0000$prefix';
+    return '${kind.name}\u0000prefix\u0000$prefix';
   }
 
   static int _severity(_NotificationKind kind) => switch (kind) {
@@ -240,22 +263,25 @@ class NotificationService {
     _NotificationKind kind,
     String message, {
     Duration? overrideDuration,
+    String? groupKey,
   }) {
     if (_suppressNotifications) {
       _enqueueWhileSuppressed(kind, message);
       return;
     }
-    final key = _groupKey(kind, message);
-    final existing = _queue.firstWhere(
-      (q) => !q.isOverflow && _groupKey(q.kind, q.message) == key,
+    final key = _groupKey(kind, message, groupKey);
+    final candidates = [if (_active != null) _active!, ..._queue];
+    final existing = candidates.firstWhere(
+      (q) => !q.isOverflow && _groupKey(q.kind, q.message, q.groupKey) == key,
       orElse: () => _QueuedNotification.none,
     );
 
     if (!identical(existing, _QueuedNotification.none)) {
-      // Same kind and same start of the text already waiting → count it there
+      // Include the active item, even while it awaits its first frame.
       existing.repeatCount++;
       if (existing.message != message) existing.similarCount++;
       existing.overrideDuration = overrideDuration ?? existing.overrideDuration;
+      existing.changes.value++;
     } else if (_overflow != null || _queue.length >= _maxQueued) {
       // Queue is full: everything new goes into the one "more" entry.
       _addToOverflow(kind);
@@ -266,6 +292,7 @@ class NotificationService {
           message: message,
           repeatCount: 1,
           overrideDuration: overrideDuration,
+          groupKey: groupKey,
         ),
       );
     }
@@ -279,6 +306,8 @@ class NotificationService {
   @visibleForTesting
   static void debugResetQueue() {
     _drainGeneration++;
+    _active = null;
+    _prefixGrouping = false;
     _queue.clear();
     _overflow = null;
     _maxQueued = defaultMaxQueued;
@@ -298,6 +327,7 @@ class NotificationService {
 
     while (_queue.isNotEmpty && generation == _drainGeneration) {
       final item = _queue.removeFirst();
+      _active = item;
       if (identical(item, _overflow)) _overflow = null;
 
       final style = _styleForKind(item.kind);
@@ -314,12 +344,9 @@ class NotificationService {
         duration = Duration(milliseconds: math.min(repeatedMillis, maxMillis));
       }
 
-      await _showNow(
-        item.isOverflow ? _overflowMessage(item.repeatCount) : item.message,
-        style.bgColor,
-        duration,
-        suffix: item.similarCount > 0 ? _similarSuffix(item.similarCount) : null,
-      );
+      await _showNow(item, style.bgColor, duration, generation);
+      if (identical(_active, item)) _active = null;
+      item.changes.dispose();
     }
 
     if (generation == _drainGeneration) _isDraining = false;
@@ -328,12 +355,16 @@ class NotificationService {
   // ───────── Actual display ─────────
 
   static Future<void> _showNow(
-    String message,
+    _QueuedNotification item,
     Color bg,
-    Duration duration, {
-    String? suffix,
-  }) async {
+    Duration duration,
+    int generation,
+  ) async {
     await _waitForStableFrame();
+    if (generation != _drainGeneration) return;
+    final message = item.isOverflow
+        ? _overflowMessage(item.repeatCount)
+        : item.message;
 
     final m = messengerKey.currentState;
     if (m == null || !m.mounted) {
@@ -350,11 +381,16 @@ class NotificationService {
       // includes it. Horizontal padding matches a fixed SnackBar.
       padding: const EdgeInsets.symmetric(horizontal: 24),
       dismissDirection: DismissDirection.down,
-      content: _NotificationMessage(
-        message: message,
-        suffix: suffix,
-        onCopy: () => Clipboard.setData(ClipboardData(text: message)),
-        onClose: m.clearSnackBars,
+      content: ValueListenableBuilder<int>(
+        valueListenable: item.changes,
+        builder: (context, _, child) => _NotificationMessage(
+          message: message,
+          suffix: item.similarCount > 0
+              ? _similarSuffix(item.similarCount)
+              : null,
+          onCopy: () => Clipboard.setData(ClipboardData(text: message)),
+          onClose: m.clearSnackBars,
+        ),
       ),
     );
 
@@ -395,22 +431,56 @@ class NotificationService {
     }
   }
 
-  // ───────── Public helpers (unchanged API) ─────────
+  // ───────── Public helpers ─────────
 
-  static void showOk(String message, {Duration? duration}) =>
-      _show(_NotificationKind.ok, message, overrideDuration: duration);
+  static void showOk(String message, {Duration? duration, String? groupKey}) =>
+      _show(
+        _NotificationKind.ok,
+        message,
+        overrideDuration: duration,
+        groupKey: groupKey,
+      );
 
-  static void showError(String message, {Duration? duration}) =>
-      _show(_NotificationKind.error, message, overrideDuration: duration);
+  static void showError(
+    String message, {
+    Duration? duration,
+    String? groupKey,
+  }) => _show(
+    _NotificationKind.error,
+    message,
+    overrideDuration: duration,
+    groupKey: groupKey,
+  );
 
-  static void showWarning(String message, {Duration? duration}) =>
-      _show(_NotificationKind.warning, message, overrideDuration: duration);
+  static void showWarning(
+    String message, {
+    Duration? duration,
+    String? groupKey,
+  }) => _show(
+    _NotificationKind.warning,
+    message,
+    overrideDuration: duration,
+    groupKey: groupKey,
+  );
 
-  static void showDev(String message, {Duration? duration}) =>
-      _show(_NotificationKind.dev, message, overrideDuration: duration);
+  static void showDev(String message, {Duration? duration, String? groupKey}) =>
+      _show(
+        _NotificationKind.dev,
+        message,
+        overrideDuration: duration,
+        groupKey: groupKey,
+      );
 
-  static void showShort(String message, {Duration? duration}) =>
-      _show(_NotificationKind.short, message, overrideDuration: duration);
+  static void showShort(
+    String message, {
+    Duration? duration,
+    String? groupKey,
+  }) => _show(
+    _NotificationKind.short,
+    message,
+    overrideDuration: duration,
+    groupKey: groupKey,
+  );
 }
 
 /// Largest fraction of the available screen a notification may cover.
@@ -637,16 +707,19 @@ class _QueuedNotification {
     required this.repeatCount,
     this.overrideDuration,
     this.isOverflow = false,
+    this.groupKey,
   });
 
   /// Not final for the overflow entry, which takes the most severe kind folded in.
   _NotificationKind kind;
   final String message;
+  final String? groupKey;
+  final changes = ValueNotifier<int>(0);
 
   /// Times this was requested; for the overflow entry, how many were folded in.
   int repeatCount;
 
-  /// Other texts merged into this one because they start the same way.
+  /// Differing texts merged by explicit identity or legacy prefix grouping.
   int similarCount = 0;
   Duration? overrideDuration;
 
@@ -660,24 +733,56 @@ class _QueuedNotification {
   );
 }
 
-// Convenience functions (unchanged)
+// Convenience functions
 
-void showErrorNotification(String message, {Duration? duration}) {
-  NotificationService.showError(message, duration: duration);
+void showErrorNotification(
+  String message, {
+  Duration? duration,
+  String? groupKey,
+}) {
+  NotificationService.showError(
+    message,
+    duration: duration,
+    groupKey: groupKey,
+  );
 }
 
-void showDevNotification(String message, {Duration? duration}) {
-  NotificationService.showDev(message, duration: duration);
+void showDevNotification(
+  String message, {
+  Duration? duration,
+  String? groupKey,
+}) {
+  NotificationService.showDev(message, duration: duration, groupKey: groupKey);
 }
 
-void showShortNotification(String message, {Duration? duration}) {
-  NotificationService.showShort(message, duration: duration);
+void showShortNotification(
+  String message, {
+  Duration? duration,
+  String? groupKey,
+}) {
+  NotificationService.showShort(
+    message,
+    duration: duration,
+    groupKey: groupKey,
+  );
 }
 
-void showOkNotification(String message, {Duration? duration}) {
-  NotificationService.showOk(message, duration: duration);
+void showOkNotification(
+  String message, {
+  Duration? duration,
+  String? groupKey,
+}) {
+  NotificationService.showOk(message, duration: duration, groupKey: groupKey);
 }
 
-void showWarningNotification(String message, {Duration? duration}) {
-  NotificationService.showWarning(message, duration: duration);
+void showWarningNotification(
+  String message, {
+  Duration? duration,
+  String? groupKey,
+}) {
+  NotificationService.showWarning(
+    message,
+    duration: duration,
+    groupKey: groupKey,
+  );
 }

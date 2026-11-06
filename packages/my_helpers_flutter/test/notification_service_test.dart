@@ -115,22 +115,102 @@ void main() {
   });
 
   group('flood protection', () {
-    testWidgets('texts starting the same way merge into one "+N similar"', (
+    testWidgets('different errors sharing a prefix stay separate', (
       tester,
     ) async {
       await mount(tester);
-      showErrorNotification('Other problem'); // occupies the screen
-      showErrorNotification('Failed to load user with id=1');
-      showErrorNotification('Failed to load user with id=2');
-      showErrorNotification('Failed to load user with id=3');
-
-      final toasts = await showAll(tester);
-
-      expect(toasts.map((t) => t.text), [
-        'Other problem',
-        'Failed to load user with id=1\n+2 similar',
+      showErrorNotification(
+        'Failed to update records in production DB: deadlock',
+      );
+      showErrorNotification(
+        'Failed to update records in production DB: permission denied',
+      );
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Failed to update records in production DB: deadlock',
+        'Failed to update records in production DB: permission denied',
       ]);
     });
+
+    testWidgets('synchronous repeats include the active item before display', (
+      tester,
+    ) async {
+      await mount(tester);
+      for (var i = 0; i < 100; i++) {
+        showErrorNotification('Same burst');
+      }
+      expect((await showAll(tester)).map((t) => t.text), ['Same burst']);
+    });
+
+    testWidgets('visible repeats merge and update the grouped suffix', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('First detail', groupKey: 'operation');
+      await tester.pumpAndSettle();
+      showErrorNotification('First detail', groupKey: 'operation');
+      showErrorNotification('Second detail', groupKey: 'operation');
+      await tester.pump();
+      expect(find.text('First detail\n+1 similar'), findsOneWidget);
+      expect((await showAll(tester)).map((t) => t.text), [
+        'First detail\n+1 similar',
+      ]);
+    });
+
+    testWidgets('group identity is independent of multilingual text', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Saved|Đã lưu|Сохранено', groupKey: 'save');
+      showErrorNotification('Saved differently|Khác|Другое', groupKey: 'save');
+      expect((await showAll(tester)).map((t) => t.text), ['Saved\n+1 similar']);
+    });
+
+    testWidgets(
+      'dismiss before first frame cancels without blocking fresh notices',
+      (tester) async {
+        await mount(tester);
+        showErrorNotification('Cancelled');
+        NotificationService.discardQueue(dismissCurrent: true);
+        showErrorNotification('Fresh');
+        expect((await showAll(tester)).map((t) => t.text), ['Fresh']);
+      },
+    );
+
+    testWidgets('dismiss before first frame never displays the notice', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Cancelled');
+      NotificationService.discardQueue(dismissCurrent: true);
+      expect(await showAll(tester), isEmpty);
+    });
+
+    testWidgets(
+      'explicit group keys merge different texts into one "+N similar"',
+      (tester) async {
+        await mount(tester);
+        showErrorNotification('Other problem'); // occupies the screen
+        showErrorNotification(
+          'Failed to load user with id=1',
+          groupKey: 'load-user',
+        );
+        showErrorNotification(
+          'Failed to load user with id=2',
+          groupKey: 'load-user',
+        );
+        showErrorNotification(
+          'Failed to load user with id=3',
+          groupKey: 'load-user',
+        );
+
+        final toasts = await showAll(tester);
+
+        expect(toasts.map((t) => t.text), [
+          'Other problem',
+          'Failed to load user with id=1\n+2 similar',
+        ]);
+      },
+    );
 
     testWidgets('identical repeats still collapse without a suffix', (
       tester,
@@ -231,19 +311,21 @@ void main() {
       ]);
     });
 
-    testWidgets('configure(similarPrefixLength:) changes what counts as similar',
-        (tester) async {
-      await mount(tester);
-      NotificationService.configure(similarPrefixLength: 5);
-      showErrorNotification('Other problem');
-      showErrorNotification('Alpha one');
-      showErrorNotification('Alpha two');
+    testWidgets(
+      'configure(similarPrefixLength:) changes what counts as similar',
+      (tester) async {
+        await mount(tester);
+        NotificationService.configure(similarPrefixLength: 5);
+        showErrorNotification('Other problem');
+        showErrorNotification('Alpha one');
+        showErrorNotification('Alpha two');
 
-      expect((await showAll(tester)).map((t) => t.text), [
-        'Other problem',
-        'Alpha one\n+1 similar',
-      ]);
-    });
+        expect((await showAll(tester)).map((t) => t.text), [
+          'Other problem',
+          'Alpha one\n+1 similar',
+        ]);
+      },
+    );
 
     test('configure keeps omitted values and rejects bad ones', () {
       NotificationService.debugResetQueue();
@@ -264,7 +346,10 @@ void main() {
       expect(NotificationService.maxQueued, 9);
 
       NotificationService.debugResetQueue();
-      expect(NotificationService.maxQueued, NotificationService.defaultMaxQueued);
+      expect(
+        NotificationService.maxQueued,
+        NotificationService.defaultMaxQueued,
+      );
     });
 
     testWidgets('discardQueue drops what waits but not what is on screen', (
@@ -280,24 +365,29 @@ void main() {
       expect((await showAll(tester)).map((t) => t.text), ['Shown now']);
     });
 
-    testWidgets('discardQueue(dismissCurrent: true) also hides the visible one', (
-      tester,
-    ) async {
-      await mount(tester);
-      showErrorNotification('Shown now');
-      showErrorNotification('Never shown');
-      for (var i = 0; i < 10 && find.byType(SnackBar).evaluate().isEmpty; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-      expect(find.byType(SnackBar), findsOneWidget);
+    testWidgets(
+      'discardQueue(dismissCurrent: true) also hides the visible one',
+      (tester) async {
+        await mount(tester);
+        showErrorNotification('Shown now');
+        showErrorNotification('Never shown');
+        for (
+          var i = 0;
+          i < 10 && find.byType(SnackBar).evaluate().isEmpty;
+          i++
+        ) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(find.byType(SnackBar), findsOneWidget);
 
-      NotificationService.discardQueue(dismissCurrent: true);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+        NotificationService.discardQueue(dismissCurrent: true);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.byType(SnackBar), findsNothing);
-      expect(await showAll(tester), isEmpty);
-    });
+        expect(find.byType(SnackBar), findsNothing);
+        expect(await showAll(tester), isEmpty);
+      },
+    );
   });
 }
 

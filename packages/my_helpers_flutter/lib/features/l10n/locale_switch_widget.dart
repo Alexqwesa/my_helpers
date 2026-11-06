@@ -1,4 +1,4 @@
-﻿import 'package:animated_toggle_switch/animated_toggle_switch.dart';
+import 'package:animated_toggle_switch/animated_toggle_switch.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:locale_switcher/locale_switcher.dart';
@@ -13,7 +13,10 @@ class LangsForSwitcher extends StateNotifier<List<String>> {
   static const name = 'LangsForSwitcher_';
 
   LangsForSwitcher()
-    : super(locator<SharedPreferences>().getStringList(name) ?? ['Русский', 'Tiếng Việt']);
+    : super(
+        locator<SharedPreferences>().getStringList(name) ??
+            ['Русский', 'Tiếng Việt'],
+      );
 
   void add(String loc) {
     if (!state.contains(loc)) {
@@ -30,9 +33,10 @@ class LangsForSwitcher extends StateNotifier<List<String>> {
   }
 }
 
-final langsForSwitcherProvider = StateNotifierProvider<LangsForSwitcher, List<String>>(
-  (ref) => LangsForSwitcher(),
-);
+final langsForSwitcherProvider =
+    StateNotifierProvider<LangsForSwitcher, List<String>>(
+      (ref) => LangsForSwitcher(),
+    );
 
 class LocaleSwitchWidget extends ConsumerWidget {
   const LocaleSwitchWidget({super.key, this.showAuto = false});
@@ -50,18 +54,32 @@ class LocaleSwitchWidget extends ConsumerWidget {
 
     // final width = MediaQueryData.fromView(View.of(context)).size.width;
     final width = MediaQuery.of(context).size.width;
-    if (width < 600 || langs.length == 1) {
-      return const LocaleSwitcher.iconButton(multiLangCountries: MultiLangCountries.onlyFlag);
+    if (width < 600 || (langs.length == 1 && !showAuto)) {
+      return LocaleSwitcher.custom(
+        showOsLocale: showAuto,
+        builder: (_, context) => IconButton(
+          icon: LangIconWithToolTip(
+            localeNameFlag: LocaleSwitcher.current,
+            multiLangCountries: MultiLangCountries.onlyFlag,
+          ),
+          onPressed: () => _showLocalePicker(context),
+        ),
+      );
     } else {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: SizedBox(
           width: (langs.length + (showAuto ? 1 : 0)) * 50,
           child: LocaleSwitcher.custom(
+            showOsLocale: showAuto,
             // numberOfShown: 2,
             builder: (langCodes1, context) {
               final langCodes = SupportedLocaleNames.fromEntries(
-                langCodes1.where((lc) => langs.contains(lc.language) || (showAuto && lc.name == systemLocale)),
+                langCodes1.where(
+                  (lc) =>
+                      langs.contains(lc.language) ||
+                      (showAuto && lc.name == systemLocale),
+                ),
               );
               if (langCodes.length <= 1) {
                 // AnimatedToggleSwitch crash with one value
@@ -72,8 +90,8 @@ class LocaleSwitchWidget extends ConsumerWidget {
               //   debugPrint(langCodes.toString());
               //   return CircularProgressIndicator();
               // }
-              var current = LocaleSwitcher.current ?? LocaleSwitcher.supportedLocaleNames.first;
-              if (!langCodes.entries.contains(current)){
+              var current = LocaleSwitcher.current;
+              if (!langCodes.entries.contains(current)) {
                 current = langCodes.entries.first;
               }
 
@@ -86,16 +104,15 @@ class LocaleSwitchWidget extends ConsumerWidget {
                 current: current,
                 onChanged: (langCode) {
                   if (langCode.name == showOtherLocales) {
-                    showSelectLocaleDialog(context);
+                    _showLocalePicker(context);
                   } else {
                     LocaleSwitcher.current = langCode;
                   }
                 },
-                iconBuilder:
-                    (lang, foreground) => LangIconWithToolTip(
-                      multiLangCountries: MultiLangCountries.onlyFlag,
-                      localeNameFlag: lang,
-                    ),
+                iconBuilder: (lang, foreground) => LangIconWithToolTip(
+                  multiLangCountries: MultiLangCountries.onlyFlag,
+                  localeNameFlag: lang,
+                ),
                 allowUnlistedValues: true,
                 loading: false,
                 style: ToggleStyle(
@@ -110,4 +127,27 @@ class LocaleSwitchWidget extends ConsumerWidget {
       );
     }
   }
+
+  // The package's iconButton dialog does not forward showOsLocale.
+  // Own the dialog so showAuto is respected in compact and fallback pickers.
+  Future<void> _showLocalePicker(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      content: SizedBox(
+        width: MediaQuery.sizeOf(context).width * 0.6,
+        height: MediaQuery.sizeOf(context).height * 0.6,
+        child: LocaleSwitcher.grid(
+          showOsLocale: showAuto,
+          multiLangCountries: MultiLangCountries.onlyFlag,
+          setLocaleCallBack: (context) => Navigator.of(context).pop(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+        ),
+      ],
+    ),
+  );
 }

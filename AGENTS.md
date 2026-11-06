@@ -85,11 +85,30 @@ helpers remain in the feature directory.
 ## Localization
 
 Follow the [localization warning](README.md#localization-warning).
-Flutter `aloc(...)` currently requires `AppLocalizations.of(context)` in the
-widget build path to register a localization dependency and react to locale
-changes. Do not remove that call without replacing the dependency mechanism.
-`context.aloc(...)` is a documented migration TODO, not an existing API to
-assume is available.
+Prefer Flutter `context.aloc(...)` inside widget builds; it registers a locale
+dependency through `Localizations.localeOf(context)`. Plain `aloc(...)` is
+available outside widgets and does not register that dependency. Do not remove
+an existing `AppLocalizations.of(context)` dependency from widgets using plain
+`aloc(...)` without migrating them to the context extension.
+
+When changing `LocaleSwitchWidget`, test compact and wide layouts, including
+one configured language with `showAuto` enabled and disabled. Forward Auto
+visibility into picker dialogs as well as the main control.
+
+## Notifications
+
+Follow the [notification usage and grouping contract](README.md#notifications).
+Implement shared changes in the Flutter package, not the legacy root copies.
+Keep exact-text deduplication as the default; use stable, explicit `groupKey`
+values for intentional similarity grouping. Include the active notification
+in deduplication and guard display after asynchronous frame waits against
+cancellation. Preserve flood summaries and severity handling.
+
+For queue changes, cover cancellation before the first frame, duplicates
+while visible, distinct errors sharing a prefix, and multilingual grouping.
+Run `flutter test test/notification_service_test.dart` and
+`flutter test test/locale_switch_widget_test.dart` for the corresponding
+features, then the package analysis and full test suite as described above.
 
 ## Change hygiene
 
