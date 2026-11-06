@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_helpers_flutter/features/notification_service.dart';
 
@@ -114,7 +115,280 @@ void main() {
     }
   });
 
+  group('suppression', () {
+    testWidgets(
+      'nothing displays before flush; a single error keeps its text',
+      (tester) async {
+        await mount(tester);
+        NotificationService.suppressSnackbars();
+        showErrorNotification('Original failure');
+        expect(await showAll(tester), isEmpty);
+        NotificationService.flushPendingNotifications();
+        expect((await showAll(tester)).map((t) => t.text), [
+          'Original failure',
+        ]);
+      },
+    );
+
+    testWidgets(
+      'errors take priority over successes and pending state clears',
+      (tester) async {
+        await mount(tester);
+        NotificationService.suppressSnackbars();
+        showOkNotification('Saved');
+        showShortNotification('Copied');
+        showWarningNotification('Warning');
+        showErrorNotification('First error');
+        showErrorNotification('Second error');
+        NotificationService.flushPendingNotifications(showOks: true);
+        final toasts = await showAll(tester);
+        expect(toasts, [(text: '2 errors occurred', color: Colors.red)]);
+        NotificationService.flushPendingNotifications(showOks: true);
+        expect(await showAll(tester), isEmpty);
+        showOkNotification('Fresh success');
+        expect((await showAll(tester)).map((t) => t.text), ['Fresh success']);
+      },
+    );
+
+    testWidgets(
+      'successes are opt-in and short notices count toward the summary',
+      (tester) async {
+        await mount(tester);
+        NotificationService.suppressSnackbars();
+        showOkNotification('Not requested');
+        NotificationService.flushPendingNotifications();
+        expect(await showAll(tester), isEmpty);
+        NotificationService.suppressSnackbars();
+        showOkNotification('Saved');
+        showShortNotification('Copied');
+        NotificationService.flushPendingNotifications(showOks: true);
+        expect(await showAll(tester), [
+          (text: '2 operations completed', color: Colors.green),
+        ]);
+      },
+    );
+
+    testWidgets('discarding the queue does not discard suppressed errors', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Cancelled visible request');
+      NotificationService.suppressSnackbars();
+      showErrorNotification('Pending error');
+      NotificationService.discardQueue(dismissCurrent: true);
+      NotificationService.flushPendingNotifications();
+      expect((await showAll(tester)).map((t) => t.text), ['Pending error']);
+    });
+
+    testWidgets(
+      'warnings and developer notices do not produce a flush summary',
+      (tester) async {
+        await mount(tester);
+        NotificationService.suppressSnackbars();
+        showWarningNotification('Warning');
+        showDevNotification('Developer detail');
+        NotificationService.flushPendingNotifications(showOks: true);
+        expect(await showAll(tester), isEmpty);
+      },
+    );
+  });
+
+  group('notification controls', () {
+    testWidgets(
+      'copy copies the original message rather than the grouping suffix',
+      (tester) async {
+        await mount(tester);
+        final clipboardWrites = <Object?>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboardWrites.add(call.arguments);
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        showErrorNotification(r'First\nsecond', groupKey: 'copy');
+        showErrorNotification('Other text', groupKey: 'copy');
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.copy));
+        await tester.pump();
+        expect(clipboardWrites, [
+          {'text': r'First\nsecond'},
+        ]);
+        expect(find.text('First\nsecond\n+1 similar'), findsOneWidget);
+        await closeNotice(tester);
+      },
+    );
+
+    testWidgets(
+      'close button dismisses the current notice and advances the queue',
+      (tester) async {
+        await mount(tester);
+        await openNotice(tester, 'First');
+        showErrorNotification('Next');
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pumpAndSettle();
+        expect((await showAll(tester)).map((t) => t.text), ['Next']);
+      },
+    );
+
+    testWidgets('an explicit timeout dismisses a notice automatically', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Timed', duration: const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text('Timed'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Timed'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a duplicate does not restart the visible timeout', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Timed', duration: const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 3));
+      showErrorNotification('Timed', duration: const Duration(seconds: 10));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(await showAll(tester), isEmpty);
+    });
+  });
+
   group('flood protection', () {
+    testWidgets('explicit groups are separate from unkeyed and other groups', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Same text', groupKey: 'first');
+      showErrorNotification('Same text', groupKey: 'second');
+      showErrorNotification('Same text');
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Same text',
+        'Same text',
+        'Same text',
+      ]);
+    });
+
+    testWidgets('the same group key never merges different severities', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Failed', groupKey: 'save');
+      showWarningNotification('Retrying', groupKey: 'save');
+      showOkNotification('Recovered', groupKey: 'save');
+      final toasts = await showAll(tester);
+      expect(toasts.map((t) => t.text), ['Failed', 'Retrying', 'Recovered']);
+      expect(toasts.map((t) => t.color), [
+        Colors.red,
+        Colors.yellow.shade800,
+        Colors.green,
+      ]);
+    });
+
+    testWidgets('explicit keys override even zero-length prefix grouping', (
+      tester,
+    ) async {
+      await mount(tester);
+      NotificationService.configure(similarPrefixLength: 0);
+      showErrorNotification('Group one', groupKey: 'one');
+      showErrorNotification('Group two', groupKey: 'two');
+      showErrorNotification('Different detail', groupKey: 'one');
+      showErrorNotification('Unkeyed one');
+      showErrorNotification('Unkeyed two');
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Group one\n+1 similar',
+        'Group two',
+        'Unkeyed one\n+1 similar',
+      ]);
+    });
+
+    testWidgets(
+      'legacy prefixes never include translations or wrapper fields',
+      (tester) async {
+        await mount(tester);
+        NotificationService.configure(similarPrefixLength: 30);
+        showErrorNotification('Saved|Đã lưu|Сохранено');
+        showErrorNotification('Saved|Khác|Другое');
+        showErrorNotification('prefix|Saved|Khác nữa|Иначе|suffix');
+        expect((await showAll(tester)).map((t) => t.text), [
+          'Saved\n+2 similar',
+        ]);
+      },
+    );
+
+    testWidgets('a group key can be reused after its notification closes', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('First attempt', groupKey: 'save');
+      expect((await showAll(tester)).map((t) => t.text), ['First attempt']);
+      showErrorNotification('Second attempt', groupKey: 'save');
+      expect((await showAll(tester)).map((t) => t.text), ['Second attempt']);
+    });
+
+    testWidgets('duplicates still merge when the queue already has overflow', (
+      tester,
+    ) async {
+      await mount(tester);
+      NotificationService.configure(maxQueued: 1);
+      showErrorNotification('Active', groupKey: 'active');
+      showErrorNotification('Waiting', groupKey: 'waiting');
+      showErrorNotification('Overflow');
+      showErrorNotification('Active detail', groupKey: 'active');
+      showErrorNotification('Waiting detail', groupKey: 'waiting');
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Active\n+1 similar',
+        'Waiting\n+1 similar',
+        'More notifications: 1',
+      ]);
+    });
+
+    testWidgets('discard removes overflow and permits new queued messages', (
+      tester,
+    ) async {
+      await mount(tester);
+      NotificationService.configure(maxQueued: 1);
+      showErrorNotification('Active');
+      showErrorNotification('Discarded');
+      showErrorNotification('Discarded overflow');
+      NotificationService.discardQueue();
+      showErrorNotification('New waiting');
+      expect((await showAll(tester)).map((t) => t.text), [
+        'Active',
+        'New waiting',
+      ]);
+    });
+
+    testWidgets('dismiss a visible group and immediately reuse its key', (
+      tester,
+    ) async {
+      await mount(tester);
+      showErrorNotification('Old message', groupKey: 'save');
+      await tester.pumpAndSettle();
+      NotificationService.discardQueue(dismissCurrent: true);
+      showErrorNotification('New message', groupKey: 'save');
+      await tester.pumpAndSettle();
+      showErrorNotification('New detail', groupKey: 'save');
+      expect((await showAll(tester)).map((t) => t.text), [
+        'New message\n+1 similar',
+      ]);
+    });
+
     testWidgets('different errors sharing a prefix stay separate', (
       tester,
     ) async {
