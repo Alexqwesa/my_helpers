@@ -110,6 +110,40 @@ Run `flutter test test/notification_service_test.dart` and
 `flutter test test/locale_switch_widget_test.dart` for the corresponding
 features, then the package analysis and full test suite as described above.
 
+## Diagnostics and Talker
+
+Follow the [diagnostics configuration and privacy contract](README.md#diagnostics-with-talker).
+Use the one exported `appTalker` instance from `my_helpers_flutter`; do not
+create per-feature loggers or add app-specific dependencies to the shared
+helpers. `AppDiagnostics.configure` sets the startup policy and history limit.
+Expose `AppDiagnosticsScreen` through explicit navigation for manual review
+and export. Keep history memory-only; do not add persistence, uploads, HTTP
+interceptors, Riverpod observers, or global exception hooks by default.
+
+Error/warning notifications log by default; developer notifications log only
+in debug builds. OK/short notifications stay quiet unless explicitly opted in.
+Preserve `log: false` and safe `logMessage` forwarding on every helper and
+service method. Log once before UI grouping/suppression, and do not re-log
+suppression summaries. Never let a flush reintroduce opted-out private text.
+
+For caught exceptions, use `AppDiagnostics.recordException` with a safe stable
+event identifier and a stack trace. Do not log raw exception messages or
+objects; they can contain credentials and documents. The wrapper retains only
+recognized package/Dart frames and omits unsafe or unknown stack lines.
+Review manual `appTalker` calls because they bypass these safeguards.
+
+For SIMOPS, never log full invitation URLs, authentication tokens, WebAuthn
+payloads, signing responses, or complete documents. Use chosen event names
+and non-sensitive metadata. Keep diagnostics/export/logger errors out of
+notification logging to avoid feedback loops; do not connect Talker listeners
+back into the notification helpers. Failures in the diagnostics screen must
+stay local and must not log their own error details.
+
+Cover severity defaults, privacy opt-outs, safe exception stacks, bounded
+history, grouped/suppressed notification logging, and export failure handling
+when changing diagnostics. Run `flutter test test/app_diagnostics_test.dart`
+and `flutter test test/diagnostics_screen_test.dart`, plus the package checks.
+
 ## Change hygiene
 
 Check the working tree before editing and preserve unrelated user changes.

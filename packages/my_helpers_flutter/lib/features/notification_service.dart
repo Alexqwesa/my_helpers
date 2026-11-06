@@ -3,10 +3,12 @@ import 'dart:collection';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:my_helpers_flutter/features/aloc.dart';
+import 'app_diagnostics.dart';
 
 String localizedMsg(String message) {
   // Convert literal "\n" sequences coming from the server
@@ -51,6 +53,10 @@ enum _NotificationKind { ok, error, warning, dev, short }
 /// The show methods accept a stable `groupKey` to intentionally group different
 /// messages of the same kind. The first text is retained; differing texts add
 /// a live similar-count suffix. Active notifications participate in grouping.
+///
+/// Error and warning calls log automatically; developer calls log in debug
+/// builds. Each show method accepts `log: false` to exclude sensitive text, or
+/// `logMessage` for a safe replacement. OK and short calls default to no log.
 class NotificationService {
   static final messengerKey = GlobalKey<ScaffoldMessengerState>();
 
@@ -231,14 +237,14 @@ class NotificationService {
           : '${_pendingErrors.length} errors occurred|'
                 '${_pendingErrors.length} lỗi xảy ra|'
                 '${_pendingErrors.length} ошибок';
-      showError(msg);
+      showError(msg, log: false);
     } else if (showOks && _pendingOks.isNotEmpty) {
       final msg = _pendingOks.length == 1
           ? _pendingOks.first
           : '${_pendingOks.length} operations completed|'
                 '${_pendingOks.length} thao tác hoàn tất|'
                 '${_pendingOks.length} операций завершено';
-      showOk(msg);
+      showOk(msg, log: false);
     }
     _pendingErrors.clear();
     _pendingOks.clear();
@@ -264,7 +270,25 @@ class NotificationService {
     String message, {
     Duration? overrideDuration,
     String? groupKey,
+    bool? log,
+    String? logMessage,
   }) {
+    final shouldLog =
+        log ??
+        (kind == _NotificationKind.error ||
+            kind == _NotificationKind.warning ||
+            (kind == _NotificationKind.dev && kDebugMode));
+    if (shouldLog) {
+      AppDiagnostics.recordNotification(
+        logMessage ?? message,
+        level: switch (kind) {
+          _NotificationKind.error => LogLevel.error,
+          _NotificationKind.warning => LogLevel.warning,
+          _NotificationKind.dev => LogLevel.debug,
+          _ => LogLevel.info,
+        },
+      );
+    }
     if (_suppressNotifications) {
       _enqueueWhileSuppressed(kind, message);
       return;
@@ -433,53 +457,79 @@ class NotificationService {
 
   // ───────── Public helpers ─────────
 
-  static void showOk(String message, {Duration? duration, String? groupKey}) =>
-      _show(
-        _NotificationKind.ok,
-        message,
-        overrideDuration: duration,
-        groupKey: groupKey,
-      );
+  static void showOk(
+    String message, {
+    Duration? duration,
+    String? groupKey,
+    bool? log,
+    String? logMessage,
+  }) => _show(
+    _NotificationKind.ok,
+    message,
+    overrideDuration: duration,
+    groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
+  );
 
   static void showError(
     String message, {
     Duration? duration,
     String? groupKey,
+    bool? log,
+    String? logMessage,
   }) => _show(
     _NotificationKind.error,
     message,
     overrideDuration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 
   static void showWarning(
     String message, {
     Duration? duration,
     String? groupKey,
+    bool? log,
+    String? logMessage,
   }) => _show(
     _NotificationKind.warning,
     message,
     overrideDuration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 
-  static void showDev(String message, {Duration? duration, String? groupKey}) =>
-      _show(
-        _NotificationKind.dev,
-        message,
-        overrideDuration: duration,
-        groupKey: groupKey,
-      );
+  static void showDev(
+    String message, {
+    Duration? duration,
+    String? groupKey,
+    bool? log,
+    String? logMessage,
+  }) => _show(
+    _NotificationKind.dev,
+    message,
+    overrideDuration: duration,
+    groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
+  );
 
   static void showShort(
     String message, {
     Duration? duration,
     String? groupKey,
+    bool? log,
+    String? logMessage,
   }) => _show(
     _NotificationKind.short,
     message,
     overrideDuration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 }
 
@@ -739,11 +789,15 @@ void showErrorNotification(
   String message, {
   Duration? duration,
   String? groupKey,
+  bool? log,
+  String? logMessage,
 }) {
   NotificationService.showError(
     message,
     duration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 }
 
@@ -751,19 +805,31 @@ void showDevNotification(
   String message, {
   Duration? duration,
   String? groupKey,
+  bool? log,
+  String? logMessage,
 }) {
-  NotificationService.showDev(message, duration: duration, groupKey: groupKey);
+  NotificationService.showDev(
+    message,
+    duration: duration,
+    groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
+  );
 }
 
 void showShortNotification(
   String message, {
   Duration? duration,
   String? groupKey,
+  bool? log,
+  String? logMessage,
 }) {
   NotificationService.showShort(
     message,
     duration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 }
 
@@ -771,18 +837,30 @@ void showOkNotification(
   String message, {
   Duration? duration,
   String? groupKey,
+  bool? log,
+  String? logMessage,
 }) {
-  NotificationService.showOk(message, duration: duration, groupKey: groupKey);
+  NotificationService.showOk(
+    message,
+    duration: duration,
+    groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
+  );
 }
 
 void showWarningNotification(
   String message, {
   Duration? duration,
   String? groupKey,
+  bool? log,
+  String? logMessage,
 }) {
   NotificationService.showWarning(
     message,
     duration: duration,
     groupKey: groupKey,
+    log: log,
+    logMessage: logMessage,
   );
 }

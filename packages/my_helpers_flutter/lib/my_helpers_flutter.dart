@@ -1,5 +1,7 @@
 ﻿export 'package:my_helpers_dart/my_helpers_dart.dart' hide aloc;
 export 'features/aloc.dart';
+export 'features/app_diagnostics.dart';
+export 'features/diagnostics_screen.dart';
 export 'features/base_widget_controller.dart';
 export 'features/directional_tooltip.dart';
 export 'features/drag_and_drop_upload_area.dart';

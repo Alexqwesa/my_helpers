@@ -115,6 +115,62 @@ void main() {
     }
   });
 
+  group('display order', () {
+    testWidgets(
+      'automatic timeouts display a burst oldest first across severities',
+      (tester) async {
+        await mount(tester);
+        const duration = Duration(milliseconds: 600);
+        showErrorNotification('A', duration: duration);
+        showWarningNotification('B', duration: duration);
+        showOkNotification('C', duration: duration);
+        showDevNotification('D', duration: duration);
+        showShortNotification('E', duration: duration);
+
+        expect(await observeAutomaticOrder(tester), ['A', 'B', 'C', 'D', 'E']);
+      },
+    );
+
+    testWidgets(
+      'arrivals during dismissal stay behind older waiting messages',
+      (tester) async {
+        await mount(tester);
+        await openNotice(tester, 'A');
+        const duration = Duration(milliseconds: 600);
+        showErrorNotification('B', duration: duration);
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        showErrorNotification('C', duration: duration);
+        showErrorNotification('D', duration: duration);
+
+        // A may still be on screen while its exit animation finishes.
+        final remaining = await observeAutomaticOrder(tester);
+        expect(remaining.where((text) => text != 'A'), ['B', 'C', 'D']);
+      },
+    );
+
+    testWidgets('requests from successive frames retain arrival order', (
+      tester,
+    ) async {
+      await mount(tester);
+      const duration = Duration(milliseconds: 600);
+      tester.binding.addPostFrameCallback((_) {
+        showErrorNotification('A', duration: duration);
+      });
+      tester.binding.scheduleFrame();
+      await tester.pump();
+      tester.binding.addPostFrameCallback((_) {
+        showErrorNotification('B', duration: duration);
+      });
+      tester.binding.scheduleFrame();
+      await tester.pump();
+      showErrorNotification('C', duration: duration);
+
+      expect(await observeAutomaticOrder(tester), ['A', 'B', 'C']);
+    });
+  });
+
   group('suppression', () {
     testWidgets(
       'nothing displays before flush; a single error keeps its text',
@@ -666,6 +722,28 @@ void main() {
 }
 
 typedef Toast = ({String text, Color? color});
+
+/// Observes actual display transitions without clearing or dismissing toasts.
+/// Short fixed pumps let SnackBar timers and entrance/exit animations run.
+Future<List<String>> observeAutomaticOrder(WidgetTester tester) async {
+  final texts = <String>[];
+  var idleFrames = 0;
+  for (var i = 0; i < 240; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    final message = find.descendant(
+      of: find.byType(SnackBar),
+      matching: find.byType(SelectableText),
+    );
+    if (message.evaluate().isEmpty) {
+      if (texts.isNotEmpty && ++idleFrames >= 20) return texts;
+      continue;
+    }
+    idleFrames = 0;
+    final text = tester.widget<SelectableText>(message).data!;
+    if (texts.isEmpty || texts.last != text) texts.add(text);
+  }
+  fail('Notification queue did not drain automatically; observed: $texts');
+}
 
 /// Lets the queue run to the end and returns what was on screen, in order.
 Future<List<Toast>> showAll(WidgetTester tester) async {

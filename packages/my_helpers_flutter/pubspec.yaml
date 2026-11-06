@@ -30,6 +30,7 @@ dependencies:
   riverpod: ^2.6.1
   riverpod_annotation: ^2.6.1
   shared_preferences:
+  talker: ^5.2.0
   timezone: ^0.10.1
   toggle_switch: any
   url_strategy:
